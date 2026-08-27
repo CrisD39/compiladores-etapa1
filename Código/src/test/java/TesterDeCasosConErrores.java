@@ -30,15 +30,18 @@ public class TesterDeCasosConErrores {
     }
     
     @After
-    public  void tearDownClass() {
+    public  void tearDownClass()
+    {
         System.setOut(originalOut);
     }
     
     @Parameters(name = "{0}")
-    public static Iterable<? extends Object> data() {
+    public static Iterable<? extends Object> data()
+    {
         File folder = new File(testFilesDirectoryPath);
         ArrayList<String> names = new ArrayList();
-        for(File f: folder.listFiles()){
+        for(File f: folder.listFiles())
+        {
             names.add(f.getName());
         }
         names.sort(String::compareTo);
@@ -47,13 +50,15 @@ public class TesterDeCasosConErrores {
     
     private String input;
     
-    public TesterDeCasosConErrores(String input){
+    public TesterDeCasosConErrores(String input)
+    {
         this.input = input;
     }
        
         
     @Test
-    public void test1() {
+    public void test1()
+    {
         probarFallo(input);
     }
 
@@ -63,7 +68,8 @@ public class TesterDeCasosConErrores {
         String[] args = {testCaseFilePath};
         init.main(args);
 
-        if(fullCompilerOuputPrintingInEachTest){
+        if(fullCompilerOuputPrintingInEachTest)
+        {
             System.setOut(originalOut);
             System.out.println(outContent.toString());
         }
@@ -74,24 +80,16 @@ public class TesterDeCasosConErrores {
 
     String getErrorCode(String testCaseFilePath)  {
         String lineWithTheCode = null;
-        try {
+        try
+        {
             lineWithTheCode = (new BufferedReader(new FileReader(testCaseFilePath))).readLine();
-        } catch (IOException e) {
+        }
+        catch (IOException e)
+        {
             e.printStackTrace();
         }
 
         String errorCode = lineWithTheCode.substring(3);
         return errorCode;
     }
-
-
-
-
-
-    
-
-    
-    
-    
-    
 }

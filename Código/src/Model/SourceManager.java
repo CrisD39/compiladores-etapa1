@@ -13,5 +13,10 @@ public interface SourceManager {
 
     int getLineNumber();
 
+    // Texto de la línea fuente donde está parado el análisis actualmente
+    // (sin el salto de línea), para poder mostrarla completa en los
+    // mensajes de error (REQ-MP-08).
+    String getLineaActual();
+
     public static final char END_OF_FILE = (char) 26;
 }

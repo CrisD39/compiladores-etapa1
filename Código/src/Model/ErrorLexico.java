@@ -10,7 +10,8 @@ public final class ErrorLexico {
     private final String razon;
     private final String lineaFuente;
 
-    public ErrorLexico(int linea, int columna, String lexema, String razon, String lineaFuente) {
+    public ErrorLexico(int linea, int columna, String lexema, String razon, String lineaFuente)
+    {
         this.linea = linea;
         this.columna = columna;
         this.lexema = lexema;

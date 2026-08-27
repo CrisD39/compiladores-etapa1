@@ -28,7 +28,7 @@ public class TesterDeCasosSinErrores {
     private final PrintStream originalOut = System.out;
 
     // Cambiar a true solo para ver la salida del compilador durante la ejecucion de los tests.
-    private final boolean fullCompilerOutputPrintingInEachTest = false;
+    private final boolean fullCompilerOutputPrintingInEachTest = true;
 
     private final String input;
 

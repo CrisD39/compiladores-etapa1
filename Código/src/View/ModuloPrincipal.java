@@ -15,8 +15,7 @@ public final class ModuloPrincipal implements ResultadoLexicoListener {
 
     public static void main(String[] args) {
         if (args.length != 1) {
-           //TODO: REVISAR
-            //System.out.println("Uso: java -jar Compilador.jar <archivo-fuente>");
+            System.out.println("Uso: java -jar interpretador.jar <archivo-fuente>");
             return;
         }
         new ModuloPrincipal().ejecutar(args[0]);
@@ -38,15 +37,15 @@ public final class ModuloPrincipal implements ResultadoLexicoListener {
 
     @Override
     public void onToken(Token token) {
-        System.out.println(token);
+        System.out.println(token.toString());
     }
 
     @Override
     public void onError(ErrorLexico error) {
         huboErrores = true;
-        System.out.println("Error Léxico en línea " + error.getLinea() + ": " + error.getRazon());
+        System.out.println("Error Léxico en línea " + error.getLinea() + ": " + error.getLexema() + " " + error.getRazon());
         System.out.println("Detalle: " + error.getLineaFuente());
-        System.out.println(" ".repeat("Detalle: ".length() + error.getColumna()) + "^");
+        System.out.println(" ".repeat("Detalle: ".length() + error.getColumna() - 1) + "^");
         System.out.println("[Error:" + error.getLexema() + "|" + error.getLinea() + "]");
     }
 }
