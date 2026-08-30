@@ -260,13 +260,9 @@ public class AnalizadorLexicoImpl implements AnalizadorLexico
             actualizarCaracterActual();
             estadoParteExponente();
         }
-        else if(Character.isLetter(caracterActual) || caracterActual == '_')
-        {
-            consumirSufijoInvalidoDeNumero();
-        }
         else
         {
-            armarToken(TokenType.LIT_FLOAT);
+            cerrarLiteralFloat();
         }
     }
 
@@ -301,8 +297,24 @@ public class AnalizadorLexicoImpl implements AnalizadorLexico
             actualizarLexema();
             actualizarCaracterActual();
         }
+        cerrarLiteralFloat();
+    }
 
-        if(Character.isLetter(caracterActual) || caracterActual == '_')
+    // REQ-AL-21: "misma estructura que los floats de Java" incluye el sufijo de
+    // tipo f/F/d/D (FloatTypeSuffix de la gramática de Java), aun cuando miniJava
+    // no distinga float de double como tipos declarables (no hay keyword para
+    // ninguno de los dos): se acepta y se descarta como parte del lexema, sin
+    // armar un TokenType distinto. Cualquier otra letra o '_' pegada después
+    // sigue siendo inválida, con el mismo criterio que en los enteros.
+    private void cerrarLiteralFloat() throws IOException
+    {
+        if(esSufijoFloatValido(caracterActual))
+        {
+            actualizarLexema();
+            actualizarCaracterActual();
+        }
+
+        if(Character.isLetterOrDigit(caracterActual) || caracterActual == '_')
         {
             consumirSufijoInvalidoDeNumero();
         }
@@ -310,6 +322,11 @@ public class AnalizadorLexicoImpl implements AnalizadorLexico
         {
             armarToken(TokenType.LIT_FLOAT);
         }
+    }
+
+    private boolean esSufijoFloatValido(char c)
+    {
+        return c == 'f' || c == 'F' || c == 'd' || c == 'D';
     }
 
     // REQ-AL-06: minúscula seguida de 0 o más (letra/dígito/'_'). Cierra ante
@@ -408,7 +425,7 @@ public class AnalizadorLexicoImpl implements AnalizadorLexico
         }
         else
         {
-            reportarError(lexema.toString(), "se esperaba '&' para formar el operador &&");
+            reportarError(lexema.toString(), "se esperaba '&' para formar el operador &&", nroColumna - 1);
         }
     }
 
@@ -424,7 +441,7 @@ public class AnalizadorLexicoImpl implements AnalizadorLexico
         }
         else
         {
-            reportarError(lexema.toString(), "se esperaba '|' para formar el operador ||");
+            reportarError(lexema.toString(), "se esperaba '|' para formar el operador ||", nroColumna - 1);
         }
     }
 
@@ -550,7 +567,18 @@ public class AnalizadorLexicoImpl implements AnalizadorLexico
         }
         else
         {
-            reportarError(lexema.toString(), "falta la comilla simple de cierre");
+            // Si lo que sigue es un carácter real e imprimible (ej. la 'b' de
+            // 'ab'), apunta ahí: es el carácter que debería haber sido la
+            // comilla de cierre y no lo fue. Pero si lo que falta es EOF o un
+            // salto de línea real, ahí no hay nada que señalar en la misma
+            // línea de Detalle: en ese caso se cae al último carácter real del
+            // lexema (nroColumna - 1), igual que en estadoEntero/estadoAnd/
+            // estadoOr, para no dejar el ^ apuntando al vacío.
+            int columna = (caracterActual == SourceManager.END_OF_FILE
+                    || caracterActual == '\n' || caracterActual == '\r')
+                    ? nroColumna - 1
+                    : nroColumna;
+            reportarError(lexema.toString(), "falta la comilla simple de cierre", columna);
         }
     }
 
@@ -612,7 +640,15 @@ public class AnalizadorLexicoImpl implements AnalizadorLexico
                 }
             }
         }
-        else if(caracterActual != SourceManager.END_OF_FILE)
+        // REQ-AL-11: un salto de línea (crudo, no escapado como \n) nunca puede
+        // formar parte de la secuencia de caracteres. Sin esta exclusión, un
+        // string como "abc\<salto real>def" quedaba aceptado silenciosamente
+        // como un único literal de dos líneas, tratando el salto de línea como
+        // si fuera "el carácter x" de \x. Al no consumirlo acá, se lo deja para
+        // que estadoString/estadoChar lo vean como lo que es (fin de línea sin
+        // cerrar el literal) y reporten el error correspondiente.
+        else if(caracterActual != SourceManager.END_OF_FILE
+                && caracterActual != '\n' && caracterActual != '\r')
         {
             actualizarLexema();
             actualizarCaracterActual();
