@@ -567,11 +567,18 @@ public class AnalizadorLexicoImpl implements AnalizadorLexico
         }
         else
         {
-            // nroColumna ya quedó apuntando al carácter siguiente al último
-            // consumido (el lookahead: el que debería haber sido la comilla de
-            // cierre y no lo fue), no al último carácter del lexema. Mismo
-            // desfasaje que en estadoEntero/estadoAnd/estadoOr.
-            reportarError(lexema.toString(), "falta la comilla simple de cierre", nroColumna - 1);
+            // Si lo que sigue es un carácter real e imprimible (ej. la 'b' de
+            // 'ab'), apunta ahí: es el carácter que debería haber sido la
+            // comilla de cierre y no lo fue. Pero si lo que falta es EOF o un
+            // salto de línea real, ahí no hay nada que señalar en la misma
+            // línea de Detalle: en ese caso se cae al último carácter real del
+            // lexema (nroColumna - 1), igual que en estadoEntero/estadoAnd/
+            // estadoOr, para no dejar el ^ apuntando al vacío.
+            int columna = (caracterActual == SourceManager.END_OF_FILE
+                    || caracterActual == '\n' || caracterActual == '\r')
+                    ? nroColumna - 1
+                    : nroColumna;
+            reportarError(lexema.toString(), "falta la comilla simple de cierre", columna);
         }
     }
 
