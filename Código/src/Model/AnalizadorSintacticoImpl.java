@@ -19,10 +19,25 @@ import java.util.Set;
  *       de cada rama; el caso {@code ϵ} es el {@code else} que no hace nada.</li>
  * </ul>
  *
+ * <p>La expresión lambda ({@code REQ-AS-005}) ya está implementada según la
+ * sección "Gramática Expandida (Logros)" del documento: se sumó el token
+ * {@code ARROW} ({@code ->}) al léxico y {@code <Operando>} quedó reescrito con
+ * la factorización {@code <TrasId>} / {@code <TrasParen>} / {@code <TrasParenResto>}
+ * / {@code <ColaParen>} / {@code <ListaIdLambda>}, que inlinea {@code <Referencia>},
+ * {@code <Primario>} y {@code <ExpresionParentizada>}. El parser sigue decidiendo
+ * sólo con FIRST y un token de lookahead ({@code ->} se distingue por su terminal).
+ *
+ * <p>La variable local clásica ({@code REQ-AS-006}) también está implementada:
+ * {@code <Sentencia>} suma {@code <TipoPrimitivo>} / {@code idGen} / {@code idClase}
+ * como arranque de {@code int x, y, z = 10;} (sin {@code var}), con
+ * {@code <SentIdClase>} factorizando el prefijo {@code idClase} (declaración vs.
+ * llamada estática) por el token que sigue. La forma con {@code var}
+ * ({@code <VarLocal>}) queda intacta.
+ *
  * <p>Pendientes (ver el documento de diseño):
  * <ul>
- *   <li>Extensiones {@code REQ-AS-005..014} (lambdas, {@code for}, visibilidad,
- *       {@code var} clásico, genéricos anidados y diamante, inicializadores,
+ *   <li>Extensiones {@code REQ-AS-007..014} (visibilidad, {@code for},
+ *       genéricos anidados y diamante, inicializadores de atributo y de arreglo,
  *       ternario, {@code ++}/{@code --}): todavía no están en la gramática ni acá.</li>
  *   <li>{@code REQ-AS-008}: recuperación en modo pánico. Hoy {@link #error} lanza
  *       {@link ErrorSintactico} y se corta en el primer error.</li>
@@ -72,11 +87,6 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
             TokenType.PR_TRUE, TokenType.PR_FALSE, TokenType.LIT_INT,
             TokenType.LIT_CHAR, TokenType.PR_NULL);
 
-    // FIRST(<Primario>) = FIRST(<Referencia>)
-    private static final Set<TokenType> PRIMEROS_PRIMARIO = EnumSet.of(
-            TokenType.PR_THIS, TokenType.LIT_STRING, TokenType.ID_MET_VAR,
-            TokenType.PR_NEW, TokenType.ID_CLASE, TokenType.PAR_A);
-
     private static final Set<TokenType> PRIMEROS_OP_UNARIO = EnumSet.of(
             TokenType.OP_MAS, TokenType.OP_MENOS, TokenType.OP_NOT);
 
@@ -101,10 +111,13 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
             TokenType.PR_THIS, TokenType.LIT_STRING, TokenType.ID_MET_VAR,
             TokenType.PR_NEW, TokenType.ID_CLASE, TokenType.PAR_A);
 
-    // FIRST(<Sentencia>) = { ; var return if while { } ∪ FIRST(<Expresion>)
+    // FIRST(<Sentencia>) = { ; var return if while { } ∪ FIRST(<Tipo>) ∪ FIRST(<Expresion>)
+    // FIRST(<Tipo>) suma boolean/char/int e idGen (idClase ya viene de FIRST(<Expresion>)):
+    // son el arranque de la declaración de variable local clásica (REQ-AS-006).
     private static final Set<TokenType> PRIMEROS_SENTENCIA = EnumSet.of(
             TokenType.PUNTO_COMA, TokenType.PR_VAR, TokenType.PR_RETURN,
             TokenType.PR_IF, TokenType.PR_WHILE, TokenType.LLAVE_A,
+            TokenType.PR_BOOLEAN, TokenType.PR_CHAR, TokenType.PR_INT, TokenType.ID_GEN,
             TokenType.OP_MAS, TokenType.OP_MENOS, TokenType.OP_NOT,
             TokenType.PR_TRUE, TokenType.PR_FALSE, TokenType.LIT_INT,
             TokenType.LIT_CHAR, TokenType.PR_NULL,
@@ -147,7 +160,7 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
     private void error(String esperado) {
         String encontrado = tokenActual.getTipo().getNombre()
                 + " (\"" + tokenActual.getLexema() + "\")";
-        throw new ErrorSintactico(tokenActual.getLinea(), encontrado, esperado);
+        throw new ErrorSintactico(tokenActual.getLinea(), tokenActual.getLexema(), encontrado, esperado);
         // TODO REQ-AS-008: reportar y sincronizar (modo pánico) en vez de abortar.
     }
 
@@ -169,8 +182,9 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
         } else if (actualEs(TokenType.PR_INTERFACE)) {
             interfaz();
             listaClases();
+        } else {
+            // ϵ — no hace nada (FOLLOW = { eof })
         }
-        // ϵ  (FOLLOW = { eof })
     }
 
     // <Clase> ::= class idClase <GenericidadOpcional> <HerenciaOpcional> { <ListaMiembros> }
@@ -201,6 +215,8 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
             match(TokenType.OP_MENOR);
             match(TokenType.ID_GEN);
             match(TokenType.OP_MAYOR);
+        } else {
+            // ϵ — no hace nada
         }
     }
 
@@ -212,6 +228,8 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
         } else if (actualEs(TokenType.PR_IMPLEMENTS)) {
             match(TokenType.PR_IMPLEMENTS);
             tipoReferencia();
+        } else {
+            // ϵ — no hace nada
         }
     }
 
@@ -220,6 +238,8 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
         if (actualEs(TokenType.PR_EXTENDS)) {
             match(TokenType.PR_EXTENDS);
             tipoReferencia();
+        } else {
+            // ϵ — no hace nada
         }
     }
 
@@ -228,6 +248,8 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
         if (actualEn(PRIMEROS_MIEMBRO)) {
             miembro();
             listaMiembros();
+        } else {
+            // ϵ — no hace nada
         }
     }
 
@@ -236,6 +258,8 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
         if (actualEn(PRIMEROS_TIPO_METODO)) {
             metodoInterfaz();
             listaMetodosInterfaz();
+        } else {
+            // ϵ — no hace nada
         }
     }
 
@@ -325,6 +349,8 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
             match(TokenType.CORCHETE_A);
             match(TokenType.CORCHETE_C);
             dimensionesOpcionales();
+        } else {
+            // ϵ — no hace nada
         }
     }
 
@@ -353,6 +379,8 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
             match(TokenType.OP_MENOR);
             instanciadoOParametrico();
             match(TokenType.OP_MAYOR);
+        } else {
+            // ϵ — no hace nada
         }
     }
 
@@ -378,6 +406,8 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
     private void listaArgsFormalesOpcional() {
         if (actualEn(PRIMEROS_TIPO)) {
             listaArgsFormales();
+        } else {
+            // ϵ — no hace nada
         }
     }
 
@@ -393,6 +423,8 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
             match(TokenType.COMA);
             argFormal();
             listaArgsFormalesResto();
+        } else {
+            // ϵ — no hace nada
         }
     }
 
@@ -414,22 +446,39 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
         if (actualEn(PRIMEROS_SENTENCIA)) {
             sentencia();
             listaSentencias();
+        } else {
+            // ϵ — no hace nada
         }
     }
 
     // <Sentencia> ::= ;
-    //             |  <Expresion> ;
-    //             |  <VarLocal> ;
+    //             |  <VarLocal> ;                        (var idMetVar = ...)
+    //             |  <TipoPrimitivo> <RestoDeclLocal>    \
+    //             |  idGen <RestoDeclLocal>              |  variable local clásica (REQ-AS-006)
+    //             |  idClase <SentIdClase>              /
     //             |  <Return> ;
     //             |  <If>
     //             |  <While>
     //             |  <Bloque>
+    //             |  <Expresion> ;                       (sólo si el lookahead ∈ FIRST(<Expresion>) \ { idClase })
     private void sentencia() {
         if (actualEs(TokenType.PUNTO_COMA)) {
             match(TokenType.PUNTO_COMA);
         } else if (actualEs(TokenType.PR_VAR)) {
             varLocal();
             match(TokenType.PUNTO_COMA);
+        } else if (actualEn(PRIMEROS_TIPO_PRIMITIVO)) {
+            tipoPrimitivo();
+            restoDeclLocal();
+        } else if (actualEs(TokenType.ID_GEN)) {
+            match(TokenType.ID_GEN);
+            restoDeclLocal();
+        } else if (actualEs(TokenType.ID_CLASE)) {
+            // idClase se intercepta acá: puede abrir una declaración local
+            // (<Tipo> idMetVar ...) o una expresión (idClase . idMetVar (...)).
+            // Un token más lo decide, en sentIdClase().
+            match(TokenType.ID_CLASE);
+            sentIdClase();
         } else if (actualEs(TokenType.PR_RETURN)) {
             sentenciaReturn();
             match(TokenType.PUNTO_COMA);
@@ -440,6 +489,8 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
         } else if (actualEs(TokenType.LLAVE_A)) {
             bloque();
         } else if (actualEn(PRIMEROS_EXPRESION)) {
+            // idClase ya quedó tomado por la rama de arriba; acá sólo entra el
+            // resto de FIRST(<Expresion>).
             expresion();
             match(TokenType.PUNTO_COMA);
         } else {
@@ -455,6 +506,59 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
         expresionCompuesta();
     }
 
+    // <SentIdClase> ::= <TipoGenericoOpcional> <RestoDeclLocal>
+    //               |  . idMetVar <ArgsActuales> <ReferenciaResto> <ExpresionCompuestaResto> <RestoAsignacion> ;
+    // El "idClase" ya fue consumido por sentencia(). Si sigue ".", era una
+    // llamada a método estático (expresión); si no, es una declaración local
+    // con tipo clase (`Foo x;`, `Foo<Bar> x = ...;`). La rama "." reconstruye
+    // la cola de <Expresion> que arrancaba en idClase . idMetVar <ArgsActuales>.
+    private void sentIdClase() {
+        if (actualEs(TokenType.PUNTO)) {
+            match(TokenType.PUNTO);
+            match(TokenType.ID_MET_VAR);
+            argsActuales();
+            referenciaResto();
+            expresionCompuestaResto();
+            restoAsignacion();
+            match(TokenType.PUNTO_COMA);
+        } else {
+            tipoGenericoOpcional();
+            restoDeclLocal();
+        }
+    }
+
+    // <RestoDeclLocal> ::= idMetVar <MasIdsLocal> <InitLocalOpc> ;
+    // Cola de una declaración local clásica, después del tipo base. Un único
+    // "= <ExpresionCompuesta>" al final vale para toda la lista de nombres
+    // (`int x, y, z = 10;`); a qué variables les aplica el valor es semántico.
+    private void restoDeclLocal() {
+        match(TokenType.ID_MET_VAR);
+        masIdsLocal();
+        initLocalOpc();
+        match(TokenType.PUNTO_COMA);
+    }
+
+    // <MasIdsLocal> ::= , idMetVar <MasIdsLocal> | ϵ
+    private void masIdsLocal() {
+        if (actualEs(TokenType.COMA)) {
+            match(TokenType.COMA);
+            match(TokenType.ID_MET_VAR);
+            masIdsLocal();
+        } else {
+            // ϵ — no hace nada
+        }
+    }
+
+    // <InitLocalOpc> ::= = <ExpresionCompuesta> | ϵ
+    private void initLocalOpc() {
+        if (actualEs(TokenType.OP_ASIGN)) {
+            match(TokenType.OP_ASIGN);
+            expresionCompuesta();
+        } else {
+            // ϵ — no hace nada
+        }
+    }
+
     // <Return> ::= return <ExpresionOpcional>
     private void sentenciaReturn() {
         match(TokenType.PR_RETURN);
@@ -465,6 +569,8 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
     private void expresionOpcional() {
         if (actualEn(PRIMEROS_EXPRESION)) {
             expresion();
+        } else {
+            // ϵ — no hace nada
         }
     }
 
@@ -485,6 +591,8 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
         if (actualEs(TokenType.PR_ELSE)) {
             match(TokenType.PR_ELSE);
             sentencia();
+        } else {
+            // ϵ — no hace nada (reduce por ϵ; el "else" liga con el if más cercano)
         }
     }
 
@@ -508,6 +616,8 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
         if (actualEs(TokenType.OP_ASIGN)) {
             operadorAsignacion();
             expresionCompuesta();
+        } else {
+            // ϵ — no hace nada
         }
     }
 
@@ -528,6 +638,8 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
             operadorBinario();
             expresionBasica();
             expresionCompuestaResto();
+        } else {
+            // ϵ — no hace nada
         }
     }
 
@@ -561,14 +673,117 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
         }
     }
 
-    // <Operando> ::= <Primitivo> | <Referencia>
+    // <Operando> ::= <Primitivo>
+    //            |  this <ReferenciaResto>
+    //            |  stringLiteral <ReferenciaResto>
+    //            |  new <RestoNew> <ReferenciaResto>
+    //            |  <LlamadaMetodoEstatico> <ReferenciaResto>
+    //            |  idMetVar <TrasId>
+    //            |  ( <TrasParen>
+    // Forma factorizada de "Gramática Expandida (Logros)": inlinea <Referencia>,
+    // <Primario> y <ExpresionParentizada> para poder repartir los prefijos "("
+    // (expresión parentizada vs. lambda) e "idMetVar" (variable vs. lambda de 1
+    // parámetro sin paréntesis). Decisión con un solo token; ARROW no está en
+    // ningún FIRST, es siempre marcador infijo de lambda.
     private void operando() {
         if (actualEn(PRIMEROS_PRIMITIVO)) {
             primitivo();
-        } else if (actualEn(PRIMEROS_PRIMARIO)) {
-            referencia();
+        } else if (actualEs(TokenType.PR_THIS)) {
+            match(TokenType.PR_THIS);
+            referenciaResto();
+        } else if (actualEs(TokenType.LIT_STRING)) {
+            match(TokenType.LIT_STRING);
+            referenciaResto();
+        } else if (actualEs(TokenType.PR_NEW)) {
+            match(TokenType.PR_NEW);
+            restoNew();
+            referenciaResto();
+        } else if (actualEs(TokenType.ID_CLASE)) {
+            llamadaMetodoEstatico();
+            referenciaResto();
+        } else if (actualEs(TokenType.ID_MET_VAR)) {
+            match(TokenType.ID_MET_VAR);
+            trasId();
+        } else if (actualEs(TokenType.PAR_A)) {
+            match(TokenType.PAR_A);
+            trasParen();
         } else {
             error("un operando");
+        }
+    }
+
+    // <TrasId> ::= -> <Expresion>                    (lambda de 1 parámetro: x -> e)
+    //          |  <ArgsActualesOpcional> <ReferenciaResto>   (variable o llamada: x | x(a) | x.f ...)
+    private void trasId() {
+        if (actualEs(TokenType.ARROW)) {
+            match(TokenType.ARROW);
+            expresion();
+        } else {
+            argsActualesOpcional();
+            referenciaResto();
+        }
+    }
+
+    // <TrasParen> ::= ) -> <Expresion>              (lambda de 0 parámetros: () -> e)
+    //             |  <Expresion> <TrasParenResto>
+    private void trasParen() {
+        if (actualEs(TokenType.PAR_C)) {
+            match(TokenType.PAR_C);
+            match(TokenType.ARROW);
+            expresion();
+        } else if (actualEn(PRIMEROS_EXPRESION)) {
+            expresion();
+            trasParenResto();
+        } else {
+            error("\")\" (lambda sin parámetros) o una expresión");
+        }
+    }
+
+    // <TrasParenResto> ::= ) <ColaParen>
+    //                   |  , <ListaIdLambda> ) -> <Expresion>   (lambda de >=2 parámetros)
+    private void trasParenResto() {
+        if (actualEs(TokenType.PAR_C)) {
+            match(TokenType.PAR_C);
+            colaParen();
+        } else if (actualEs(TokenType.COMA)) {
+            match(TokenType.COMA);
+            listaIdLambda();
+            match(TokenType.PAR_C);
+            match(TokenType.ARROW);
+            expresion();
+        } else {
+            error("\")\" o \",\"");
+        }
+    }
+
+    // <ColaParen> ::= -> <Expresion>        (era ( x ) -> e : lambda de 1 parámetro)
+    //             |  <ReferenciaResto>      (era ( <Expresion> ) : expresión parentizada)
+    // Sobre-acepta ( <Expresion> ) -> e con <Expresion> que no es un idMetVar
+    // (p. ej. ( a + b ) -> e): es el costo conocido de factorizar el "(" y se
+    // rechaza en la etapa semántica (ver "El costo" en el documento).
+    private void colaParen() {
+        if (actualEs(TokenType.ARROW)) {
+            match(TokenType.ARROW);
+            expresion();
+        } else {
+            referenciaResto();
+        }
+    }
+
+    // <ListaIdLambda> ::= idMetVar <RestoListaIdLambda>
+    private void listaIdLambda() {
+        match(TokenType.ID_MET_VAR);
+        restoListaIdLambda();
+    }
+
+    // <RestoListaIdLambda> ::= , idMetVar <RestoListaIdLambda> | ϵ
+    private void restoListaIdLambda() {
+        if (actualEs(TokenType.COMA)) {
+            match(TokenType.COMA);
+            match(TokenType.ID_MET_VAR);
+            restoListaIdLambda();
+        } else {
+            // ϵ — no hace nada
         }
     }
 
@@ -579,12 +794,6 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
         } else {
             error("un literal (true, false, intLiteral, charLiteral, null)");
         }
-    }
-
-    // <Referencia> ::= <Primario> <ReferenciaResto>
-    private void referencia() {
-        primario();
-        referenciaResto();
     }
 
     // <ReferenciaResto> ::= . idMetVar <ArgsActualesOpcional> <ReferenciaResto>
@@ -601,6 +810,8 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
             expresion();
             match(TokenType.CORCHETE_C);
             referenciaResto();
+        } else {
+            // ϵ — no hace nada
         }
     }
 
@@ -608,32 +819,8 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
     private void argsActualesOpcional() {
         if (actualEs(TokenType.PAR_A)) {
             argsActuales();
-        }
-    }
-
-    // <Primario> ::= this
-    //            |  stringLiteral
-    //            |  idMetVar <ArgsActualesOpcional>
-    //            |  new <RestoNew>
-    //            |  <LlamadaMetodoEstatico>
-    //            |  <ExpresionParentizada>
-    private void primario() {
-        if (actualEs(TokenType.PR_THIS)) {
-            match(TokenType.PR_THIS);
-        } else if (actualEs(TokenType.LIT_STRING)) {
-            match(TokenType.LIT_STRING);
-        } else if (actualEs(TokenType.ID_MET_VAR)) {
-            match(TokenType.ID_MET_VAR);
-            argsActualesOpcional();
-        } else if (actualEs(TokenType.PR_NEW)) {
-            match(TokenType.PR_NEW);
-            restoNew();
-        } else if (actualEs(TokenType.ID_CLASE)) {
-            llamadaMetodoEstatico();
-        } else if (actualEs(TokenType.PAR_A)) {
-            expresionParentizada();
         } else {
-            error("un primario (this, string, idMetVar, new, idClase o \"(\")");
+            // ϵ — no hace nada
         }
     }
 
@@ -667,13 +854,6 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
         }
     }
 
-    // <ExpresionParentizada> ::= ( <Expresion> )
-    private void expresionParentizada() {
-        match(TokenType.PAR_A);
-        expresion();
-        match(TokenType.PAR_C);
-    }
-
     // <LlamadaMetodoEstatico> ::= idClase . idMetVar <ArgsActuales>
     private void llamadaMetodoEstatico() {
         match(TokenType.ID_CLASE);
@@ -700,6 +880,8 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
             expresion();
             match(TokenType.CORCHETE_C);
             dimensionesConTamanioOpc();
+        } else {
+            // ϵ — no hace nada (reduce por ϵ; el "[" restante lo toma <ReferenciaResto>)
         }
     }
 
@@ -714,6 +896,8 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
     private void listaExpsOpcional() {
         if (actualEn(PRIMEROS_EXPRESION)) {
             listaExps();
+        } else {
+            // ϵ — no hace nada
         }
     }
 
@@ -729,6 +913,8 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
             match(TokenType.COMA);
             expresion();
             restoListaExps();
+        } else {
+            // ϵ — no hace nada
         }
     }
 }

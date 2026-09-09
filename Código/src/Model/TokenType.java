@@ -26,6 +26,7 @@ public enum TokenType {
     OP_MAYOR_IGUAL("op>="), OP_MENOR_IGUAL("op<="), OP_DISTINTO("op!="),
     OP_AND("op&&"), OP_OR("op||"), OP_MOD("op%"), OP_MAS("op+"), OP_MENOS("op-"),
     OP_MULT("op*"), OP_DIV("op/"), OP_INCREMENTO("op++"), OP_DECREMENTO("op--"),
+    ARROW("op->"),
 
     // Fin de archivo
     EOF("EOF");

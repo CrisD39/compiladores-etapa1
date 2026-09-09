@@ -1,6 +1,7 @@
 package Model;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 
 // Lee directamente de SourceManager (sin pasar por LexicoHandler): ese es el
 // camino caliente, ejecutado una vez por carácter, y no debe atravesar el controller.
@@ -17,6 +18,12 @@ public class AnalizadorLexicoImpl implements AnalizadorLexico
     private final StringBuilder lexema;
     private int nroColumna; //identificar posición del error.
     Token tokenAnalizado;
+
+    // Modo pull (nextToken): en la primera llamada hay que "cebar" caracterActual
+    // igual que hace startAnalizar() antes de su loop. Este flag hace que ese
+    // primer getNextChar() ocurra una sola vez, sin importar por cuál de los dos
+    // puntos de entrada se arranque.
+    private boolean iniciado;
 
     public AnalizadorLexicoImpl(SourceManager sourceManager, ResultadoLexicoListener listener)
     {
@@ -84,6 +91,7 @@ public class AnalizadorLexicoImpl implements AnalizadorLexico
         // Loop principal: mientras no se llegue a EOF, invoca estadoInicial() por cada
         // token, emite vía listener.onToken(...) / listener.onError(...), y no se
         // detiene ante el primer error (REQ-AL-22).
+        iniciado = true;
         actualizarCaracterActual();
 
         while(caracterActual != SourceManager.END_OF_FILE)
@@ -103,6 +111,53 @@ public class AnalizadorLexicoImpl implements AnalizadorLexico
         lexema.append('$');
         armarToken(TokenType.EOF);
         listener.onToken(tokenAnalizado);
+    }
+
+    // Modo pull para el analizador sintáctico (etapa 2): mismo autómata que
+    // startAnalizar(), pero devolviendo un token por llamada en vez de empujarlos
+    // todos al listener. estadoInicial() sigue siendo el punto de arranque de cada
+    // token; cuando esa llamada no arma token (blanco, comentario o error léxico),
+    // se vuelve a llamar hasta que salga uno o hasta EOF. Los errores léxicos se
+    // siguen reportando por listener.onError(...) y no cortan la secuencia
+    // (REQ-AL-22): el sintáctico solo ve tokens.
+    @Override
+    public Token nextToken()
+    {
+        try
+        {
+            if(!iniciado)
+            {
+                iniciado = true;
+                actualizarCaracterActual();
+            }
+
+            while(caracterActual != SourceManager.END_OF_FILE)
+            {
+                lexema.setLength(0);
+                tokenAnalizado = null;
+
+                estadoInicial();
+
+                if(tokenAnalizado != null)
+                {
+                    return tokenAnalizado;
+                }
+            }
+
+            // EOF: se devuelve el mismo token de fin de archivo en esta llamada y
+            // en todas las siguientes (el sintáctico no tiene que chequear "ya se
+            // acabó, no llamar de nuevo").
+            lexema.setLength(0);
+            lexema.append('$');
+            armarToken(TokenType.EOF);
+            return tokenAnalizado;
+        }
+        catch(IOException e)
+        {
+            // nextToken() no declara IOException (la interfaz de consumo del
+            // sintáctico es pull y sin checked exceptions); se re-lanza envuelta.
+            throw new UncheckedIOException(e);
+        }
     }
 
     private void estadoInicial() throws IOException
@@ -470,6 +525,12 @@ public class AnalizadorLexicoImpl implements AnalizadorLexico
             actualizarLexema();
             actualizarCaracterActual();
             armarToken(TokenType.OP_DECREMENTO);
+        }
+        else if(caracterActual == '>')
+        {
+            actualizarLexema();
+            actualizarCaracterActual();
+            armarToken(TokenType.ARROW);      // '->' para las expresiones lambda (REQ-AS-005)
         }
         else
         {

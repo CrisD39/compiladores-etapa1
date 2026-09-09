@@ -43,7 +43,7 @@ distintos y conviene poder citarlos sin ambigüedad.
 | REQ-AS-003 | Ante un error sintáctico, el analizador debe reportarlo (línea, token encontrado, token(s) esperado(s) — ver "Manejo de errores sintácticos") e intentar continuar el análisis en lugar de abortar en el primer error, para poder informar más de uno por corrida, en la misma línea que el léxico con los suyos (REQ-AL-22 de la etapa 1). |
 | REQ-AS-004 | Al terminar de derivar el símbolo inicial de la gramática, el analizador debe verificar que no queden tokens sin consumir salvo el de fin de archivo; si sobran, es un error sintáctico (ver "`start()`" en "Estrategia de análisis"). |
 | REQ-AS-005 | El analizador sintáctico debe aceptar **expresiones lambda** con sintaxis similar a la de Java (`params -> cuerpo`). A diferencia de Java: los parámetros no declaran tipo explícito, el cuerpo es **una única expresión** (no se admite cuerpo entre llaves) y se permite cualquier cantidad de parámetros, incluido ninguno (`() -> expr`). La prohibición de capturar variables locales, parámetros o `this` dentro de la lambda es una restricción **semántica** (requiere resolución de nombres/alcances): queda anotada acá pero se verifica en una etapa posterior; el sintáctico solo valida la forma. Ver detalle debajo. |
-| REQ-AS-006 | El analizador sintáctico debe aceptar la declaración de variables locales en la forma clásica de Java: sin `var`, indicando el tipo (ejemplo `int x;`). Además debe admitir declarar varias variables e inicializarlas en una misma sentencia (ejemplo `int x,y,z = 10;`). Pendiente de reflejar en la gramática (ver nota en "Gramática"). |
+| REQ-AS-006 | El analizador sintáctico debe aceptar la declaración de variables locales en la forma clásica de Java: sin `var`, indicando el tipo (ejemplo `int x;`). Además debe admitir declarar varias variables e inicializarlas en una misma sentencia (ejemplo `int x,y,z = 10;`, un valor común al final para toda la lista; a qué variables les llega es semántico). **Implementado** — ver "Gramática Expandida (Logros)" y "Factorización de `<Sentencia>`". |
 | REQ-AS-007 | El analizador sintáctico debe permitir indicar la visibilidad de métodos, atributos y constructores de forma implícita o explícita: al declarar un miembro se puede omitir la visibilidad o indicar explícitamente `public` o `private`. Pendiente de reflejar en la gramática (ver nota en "Gramática"). |
 | REQ-AS-008 | El compilador no finaliza la ejecución ante el primer error sino que se recupera (modo pánico) y es capaz de reportar otros errores. Para eso, al encontrar un error, el analizador descarta la entrada hasta encontrar un token de sincronización que permita reanudar el análisis: se espera que se sincronice con el siguiente punto y coma, llave de cierre, o llave que abre según el contexto (ver "Manejo de errores sintácticos"). |
 | REQ-AS-009 | El analizador sintáctico debe aceptar sentencias `for` similares a las de Java, en dos formas: la estándar con separadores `;` y la de iteradores (for-each) con `:`. Se restringe cada sección del `for` a una sola sentencia/expresión (no listas separadas por coma). Pendiente de reflejar en la gramática (ver nota en "Gramática"). |
@@ -92,9 +92,9 @@ concreta, no terminal por no terminal, se va a ir volcando como revisiones de
 la sección "Gramática" (dejando registro de qué se reescribió y por qué, como
 ya se aclaró ahí).
 
-**Detalle de REQ-AS-005 — forma sintáctica de la lambda.** Puntos a fijar,
-todavía sin escribir la producción dentro del bloque de la sección "Gramática"
-(se agrega en una revisión futura, igual que el resto de los ajustes):
+**Detalle de REQ-AS-005 — forma sintáctica de la lambda.** Especificación de la
+forma; la gramática concreta está en "Gramática Expandida (Logros)" y ya está
+implementada en `AnalizadorSintacticoImpl`:
 
 - **Forma aceptada**: `<Lambda> ::= <ParamsLambda> -> <Expresion>`. El cuerpo
   reusa `<Expresion>` de la gramática (una sola expresión); no hay alternativa
@@ -104,17 +104,16 @@ todavía sin escribir la producción dentro del bloque de la sección "Gramátic
   obligatorio (`() -> expr`). A diferencia de `<ArgFormal> ::= <Tipo> idMetVar`,
   acá nunca aparece `<Tipo>`.
 - **Dónde enchufa**: la lambda es una forma de expresión; entra como
-  alternativa a nivel de `<ExpresionBasica>` / `<Operando>` (a precisar al
-  escribir la producción). Requiere sumar `->` como token nuevo del léxico si
-  todavía no existe (`TokenType`), y `<Lambda>` + `<ParamsLambda>` como no
-  terminales nuevos.
+  alternativa de `<Operando>`. Usa `->` como token del léxico (`ARROW`) y sumó
+  los no terminales `<Lambda>` / `<ParamsLambda>` (que al factorizar se vuelven
+  `<TrasId>` / `<TrasParen>` / `<TrasParenResto>` / `<ColaParen>` / `<ListaIdLambda>`).
 - **Conflicto LL(1) conocido**: el prefijo `(` es ambiguo entre
   `( <Expresion> )` (`<ExpresionParentizada>`), `( ) ->` y
   `( idMetVar , ... ) ->`. Con un solo token de lookahead no se distingue una
   lambda parentizada de una expresión parentizada. Es el punto más difícil de
-  factorizar de esta extensión; la solución concreta (factorización profunda o
-  un tratamiento especial del `(`) se define en la revisión de la sección
-  "Gramática", no acá.
+  factorizar de esta extensión; la solución concreta está en "Factorización del
+  prefijo `(` — lambda vs. expresión parentizada" (postergar la decisión hasta
+  después del `)` que cierra).
 - **Restricción de captura / `this`**: es semántica (requiere resolución de
   nombres y alcances), fuera del alcance de esta etapa. Queda anotada en el
   requerimiento y se verifica en la etapa semántica posterior; el sintáctico
@@ -285,18 +284,23 @@ y al menos una ambigüedad real. El análisis completo, regla por regla, está e
 "Reglas que violan LL(1) — análisis de la gramática de partida", más abajo en
 esta misma sección.
 
-Además falta **sumar la producción de expresión lambda** (`REQ-AS-005`):
-`<Lambda> ::= <ParamsLambda> -> <Expresion>` como alternativa de expresión, con
-`<ParamsLambda>` una lista de `idMetVar` sin tipo (opcionalmente entre `( )`,
-obligatorio `( )` con cero parámetros). Al agregarla aparece un conflicto LL(1)
-sobre el prefijo `(` — `( <Expresion> )` vs. `( ) ->` vs.
-`( idMetVar , ... ) ->` — que hay que resolver por factorización profunda o un
-tratamiento especial del `(`. Ver "Detalle de REQ-AS-005" en "Requerimientos".
+La **producción de expresión lambda** (`REQ-AS-005`),
+`<Lambda> ::= <ParamsLambda> -> <Expresion>` como alternativa de expresión (con
+`<ParamsLambda>` una lista de `idMetVar` sin tipo, opcionalmente entre `( )`,
+obligatorio `( )` con cero parámetros), **ya está resuelta e implementada**: la
+gramática factorizada está en "Gramática Expandida (Logros)" y el conflicto LL(1)
+del prefijo `(` (`( <Expresion> )` vs. `( ) ->` vs. `( idMetVar , ... ) ->`) se
+trata en "Factorización del prefijo `(` — lambda vs. expresión parentizada". Este
+bloque de gramática de partida no la incluye a propósito (es el punto de partida
+sin extensiones). Ver "Detalle de REQ-AS-005" en "Requerimientos".
 
-Falta reflejar **variables locales clásicas** (`REQ-AS-006`): declaración sin
-`var` con tipo explícito y con varias variables por sentencia — hoy `<VarLocal>`
-solo cubre la forma `var idMetVar = ...`. A resolver en una revisión futura de
-esta sección.
+Las **variables locales clásicas** (`REQ-AS-006`) —declaración sin `var`, con
+tipo explícito y varias variables por sentencia con un valor común
+(`int x, y, z = 10;`)— **ya están reflejadas** en "Gramática Expandida
+(Logros)" (`<Sentencia>` con arranque `<TipoPrimitivo>` / `idGen` / `idClase`,
+más `<SentIdClase>` / `<RestoDeclLocal>` / `<MasIdsLocal>` / `<InitLocalOpc>`) y
+en el código. El detalle del conflicto del prefijo `idClase` está en
+"Factorización de `<Sentencia>`". La forma `var idMetVar = ...` queda intacta.
 
 Falta reflejar la **visibilidad de miembros** (`REQ-AS-007`): `public` /
 `private` opcional en atributos, métodos y constructores — hoy `<Atributo>` y
@@ -347,10 +351,12 @@ reemplazar la gramática de origen en silencio.
 Para un descenso recursivo predictivo con un token de lookahead, cada no
 terminal con más de una alternativa tiene que poder elegir rama mirando un solo
 token, y ningún no terminal puede ser recursivo a izquierda. Repasando la
-gramática de partida tal como está en el bloque de arriba (sin contar todavía
-las extensiones `REQ-AS-005..014`, que suman sus propios conflictos ya anotados
-en las notas anteriores), estas son las reglas que lo impiden, agrupadas por
-tipo de problema.
+gramática de partida tal como está en el bloque de arriba (sin contar las
+extensiones del Paso 5 —`REQ-AS-007..014`, más la lambda de `REQ-AS-005` y la
+variable local clásica de `REQ-AS-006`, que ya viven en "Gramática Expandida
+(Logros)"—, que suman sus propios conflictos ya anotados en las notas
+anteriores), estas son las reglas que lo impiden, agrupadas por tipo de
+problema.
 
 #### 1. Recursión a izquierda
 
@@ -617,14 +623,17 @@ correspondiente:
   toma en `<ReferenciaResto>`, cuando `<DimensionesConTamanio>` ya no puede
   seguir.
 
-#### Paso 5 — Al incorporar `REQ-AS-005..014`
+#### Paso 5 — Al incorporar `REQ-AS-007..014`
 
 Cada extensión pendiente vuelve a pasar por los pasos 1–3 sobre los no
-terminales que toca. Dos ya tienen diagnóstico propio: el `(` de las lambdas
-(`REQ-AS-005`, factorización profunda o mirada especial del `(`) y el `<` / `>`
-de los genéricos anidados y `<>` (`REQ-AS-010`, incluye el cierre `>>`). El
-resto (`for`, visibilidad, `var` clásico, inicializadores, ternario, `++`/`--`)
-son alternativas nuevas que se factorizan con las mismas técnicas al agregarlas.
+terminales que toca. **Ya están incorporadas** dos: la lambda (`REQ-AS-005`),
+con su gramática factorizada en "Gramática Expandida (Logros)" y el conflicto
+del prefijo `(` en "Factorización del prefijo `(`"; y la variable local clásica
+(`REQ-AS-006`), con el conflicto del prefijo `idClase` en "Factorización de
+`<Sentencia>`". De lo que queda, el `<` / `>` de los genéricos anidados y `<>`
+(`REQ-AS-010`, incluye el cierre `>>`) tiene diagnóstico propio; el resto
+(visibilidad, `for`, inicializadores, ternario, `++`/`--`) son alternativas
+nuevas que se factorizan con las mismas técnicas al agregarlas.
 
 ### Gramática LL(1) resultante
 
@@ -634,10 +643,12 @@ factorización a izquierda). Misma notación BNF; no terminal inicial `<Inicial>
 
 Alcance y límites de esta versión:
 
-- **No** incorpora todavía las extensiones `REQ-AS-005..014` (lambdas,
-  `for`, visibilidad de miembros, `var` clásico, genéricos anidados y diamante,
-  inicializadores de atributo y de arreglo, ternario, `++`/`--`): son el
-  **Paso 5**, y se van a ir sumando sobre esta base reaplicando los pasos 1–3 a
+- Este bloque **no** incorpora las extensiones del **Paso 5**. La lambda
+  (`REQ-AS-005`) y la variable local clásica (`REQ-AS-006`) ya están integradas,
+  pero en la sección aparte "Gramática Expandida (Logros)", no acá. Quedan
+  pendientes `REQ-AS-007..014` (visibilidad de miembros, `for`, genéricos
+  anidados y diamante, inicializadores de atributo y de arreglo, ternario,
+  `++`/`--`): se van a ir sumando sobre esta base reaplicando los pasos 1–3 a
   los no terminales que toque cada una.
 - Quedan dos conflictos **deliberados** que no se reescriben y se resuelven por
   convención en el método correspondiente (Paso 4): `<ElseOpcional>` sobre
@@ -841,14 +852,338 @@ Contrato que el sintáctico asume de `nextToken()`:
   excepción o devolver `null`, para no obligar al sintáctico a un chequeo
   especial de "ya se acabó, no llamar de nuevo".
 
-Nota de implementación pendiente: `AnalizadorLexicoImpl` hoy solo implementa
-`startAnalizar()` (recorre el archivo completo empujando tokens al listener).
-`nextToken()` todavía no tiene cuerpo — falta adaptar el autómata para que
-pueda ejecutarse "un token por llamada" en lugar de "hasta EOF de una vez",
-manteniendo el mismo reporte de errores léxicos.
+Nota de implementación: `AnalizadorLexicoImpl` implementa los dos modos sobre el
+mismo autómata. `startAnalizar()` recorre el archivo completo empujando tokens al
+listener (etapa 1). `nextToken()` reusa `estadoInicial()` token por token: en la
+primera llamada ceba `caracterActual` (flag `iniciado`, que `startAnalizar()`
+también setea), después vuelve a llamar a `estadoInicial()` hasta que se arme un
+token o se llegue a EOF, salteando blancos y comentarios. Los errores léxicos se
+siguen informando por `listener.onError(...)` y no interrumpen la secuencia; al
+llegar a EOF devuelve el token `EOF` en esa llamada y en todas las siguientes.
+Como la interfaz de consumo del sintáctico es *pull* y sin checked exceptions,
+una `IOException` del `SourceManager` se re-lanza envuelta en
+`UncheckedIOException`.
 
-## Gramática.
+## Gramática Expandida (Logros).
 
+```
+<Inicial> ::= <ListaClases> eof
+
+<ListaClases> ::= <Clase> <ListaClases> | <Interfaz> <ListaClases> | ϵ
+
+<Clase> ::= class idClase <GenericidadOpcional> <HerenciaOpcional> { <ListaMiembros> }
+
+<Interfaz> ::= interface idClase <GenericidadOpcional> <ExtensionOpcional> { <ListaMetodosInterfaz> }
+
+<GenericidadOpcional> ::= < idGen > | ϵ
+
+<HerenciaOpcional> ::= extends <TipoReferencia> | implements <TipoReferencia> | ϵ
+
+<ExtensionOpcional> ::= extends <TipoReferencia> | ϵ
+
+<ListaMiembros> ::= <Miembro> <ListaMiembros> | ϵ
+
+<ListaMetodosInterfaz> ::= <MetodoInterfaz> <ListaMetodosInterfaz> | ϵ
+
+<Miembro> ::= public idClase <ArgsFormales> <Bloque>
+<Miembro> ::= static <TipoMetodo> idMetVar <ArgsFormales> <Bloque>
+<Miembro> ::= void idMetVar <ArgsFormales> <Bloque>
+<Miembro> ::= <Tipo> idMetVar <RestoMiembro>
+
+<RestoMiembro> ::= ; | <ArgsFormales> <Bloque>
+
+<MetodoInterfaz> ::= <TipoMetodo> idMetVar <ArgsFormales> ;
+
+<TipoMetodo> ::= <Tipo> | void
+
+<Tipo> ::= <TipoBase> <DimensionesOpcionales>
+
+<TipoBase> ::= <TipoPrimitivo> | <TipoReferencia> | idGen
+
+<DimensionesOpcionales> ::= [ ] <DimensionesOpcionales> | ϵ
+
+<TipoReferencia> ::= idClase <TipoGenericoOpcional>
+
+<TipoPrimitivo> ::= boolean | char | int
+
+<TipoGenericoOpcional> ::= < <InstanciadoOParametrico> > | ϵ
+
+<InstanciadoOParametrico> ::= idGen | idClase
+
+<ArgsFormales> ::= ( <ListaArgsFormalesOpcional> )
+
+<ListaArgsFormalesOpcional> ::= <ListaArgsFormales> | ϵ
+
+<ListaArgsFormales> ::= <ArgFormal> <ListaArgsFormalesResto>
+
+<ListaArgsFormalesResto> ::= , <ArgFormal> <ListaArgsFormalesResto> | ϵ
+
+<ArgFormal> ::= <Tipo> idMetVar
+
+<Bloque> ::= { <ListaSentencias> }
+
+<ListaSentencias> ::= <Sentencia> <ListaSentencias> | ϵ
+
+<Sentencia> ::= ;
+<Sentencia> ::= <VarLocal> ;
+<Sentencia> ::= <TipoPrimitivo> <RestoDeclLocal>
+<Sentencia> ::= idGen <RestoDeclLocal>
+<Sentencia> ::= idClase <SentIdClase>
+<Sentencia> ::= <Return> ;
+<Sentencia> ::= <If>
+<Sentencia> ::= <While>
+<Sentencia> ::= <Bloque>
+<Sentencia> ::= <Expresion> ;      # sólo si el lookahead ∈ FIRST(<Expresion>) \ { idClase }
+
+<VarLocal> ::= var idMetVar = <ExpresionCompuesta>
+
+# --- REQ-AS-006 · variable local clásica (sin var) -----------------------------
+# int x;  /  int x, y, z = 10;  /  T g;  /  Foo x;  /  Foo<Bar> x = new Foo<Bar>();
+# Un único "= <ExpresionCompuesta>" al final vale para toda la lista de nombres;
+# a qué variables les aplica el valor es semántico. El prefijo idClase se comparte
+# con la expresión (idClase . idMetVar (...)) y se factoriza en <SentIdClase>
+# mirando el token que sigue (ver "Factorización de <Sentencia>").
+
+<SentIdClase> ::= <TipoGenericoOpcional> <RestoDeclLocal>
+<SentIdClase> ::= . idMetVar <ArgsActuales> <ReferenciaResto> <ExpresionCompuestaResto> <RestoAsignacion> ;
+
+<RestoDeclLocal> ::= idMetVar <MasIdsLocal> <InitLocalOpc> ;
+
+<MasIdsLocal> ::= , idMetVar <MasIdsLocal> | ϵ
+
+<InitLocalOpc> ::= <OperadorAsignacion> <ExpresionCompuesta> | ϵ
+
+<Return> ::= return <ExpresionOpcional>
+
+<ExpresionOpcional> ::= <Expresion> | ϵ
+
+<If> ::= if ( <Expresion> ) <Sentencia> <ElseOpcional>
+
+<ElseOpcional> ::= else <Sentencia> | ϵ
+
+<While> ::= while ( <Expresion> ) <Sentencia>
+
+<Expresion> ::= <ExpresionCompuesta> <RestoAsignacion>
+
+<RestoAsignacion> ::= <OperadorAsignacion> <ExpresionCompuesta> | ϵ
+
+<OperadorAsignacion> ::= =
+
+<ExpresionCompuesta> ::= <ExpresionBasica> <ExpresionCompuestaResto>
+
+<ExpresionCompuestaResto> ::= <OperadorBinario> <ExpresionBasica> <ExpresionCompuestaResto> | ϵ
+
+<OperadorBinario> ::= || | && | == | != | < | > | <= | >= | + | - | * | / | %
+
+<ExpresionBasica> ::= <OperadorUnario> <Operando> | <Operando>
+
+<OperadorUnario> ::= + | - | !
+
+<Operando> ::= <Primitivo> | <Referencia> | <Lambda>
+
+<Primitivo> ::= true | false | intLiteral | charLiteral | null
+
+<Referencia> ::= <Primario> <ReferenciaResto>
+
+<ReferenciaResto> ::= . idMetVar <ArgsActualesOpcional> <ReferenciaResto>
+<ReferenciaResto> ::= [ <Expresion> ] <ReferenciaResto>
+<ReferenciaResto> ::= ϵ
+
+<ArgsActualesOpcional> ::= <ArgsActuales> | ϵ
+
+<Primario> ::= this
+<Primario> ::= stringLiteral
+<Primario> ::= idMetVar <ArgsActualesOpcional>
+<Primario> ::= new <RestoNew>
+<Primario> ::= <LlamadaMetodoEstatico>
+<Primario> ::= <ExpresionParentizada>
+
+<RestoNew> ::= <TipoPrimitivo> <DimensionesConTamanio>
+<RestoNew> ::= idGen <DimensionesConTamanio>
+<RestoNew> ::= idClase <TipoGenericoOpcional> <RestoNewIdClase>
+
+<RestoNewIdClase> ::= <DimensionesConTamanio> | <ArgsActuales>
+
+<ExpresionParentizada> ::= ( <Expresion> )
+
+<LlamadaMetodoEstatico> ::= idClase . idMetVar <ArgsActuales>
+
+<DimensionesConTamanio> ::= [ <Expresion> ] <DimensionesConTamanioOpc>
+
+<DimensionesConTamanioOpc> ::= [ <Expresion> ] <DimensionesConTamanioOpc> | ϵ
+
+<ArgsActuales> ::= ( <ListaExpsOpcional> )
+
+<ListaExpsOpcional> ::= <ListaExps> | ϵ
+
+<ListaExps> ::= <Expresion> <RestoListaExps>
+
+<RestoListaExps> ::= , <Expresion> <RestoListaExps> | ϵ
+
+# --- REQ-AS-005 · expresión lambda -------------------------------------------
+# Forma: <ParamsLambda> -> <Expresion>. Los parámetros no llevan tipo (lista de
+# idMetVar); el cuerpo es UNA expresión, nunca "{ ... }". Con cero parámetros el
+# "( )" es obligatorio; con un solo parámetro los paréntesis son opcionales.
+# La lambda es una alternativa más de <Operando> (ver la línea de <Operando>).
+
+<Lambda> ::= <ParamsLambda> -> <Expresion>
+
+<ParamsLambda> ::= ( <ParamsLambdaEntreParen> ) | idMetVar
+
+<ParamsLambdaEntreParen> ::= <ListaIdLambda> | ϵ
+
+<ListaIdLambda> ::= idMetVar <RestoListaIdLambda>
+
+<RestoListaIdLambda> ::= , idMetVar <RestoListaIdLambda> | ϵ
+
+# <Lambda> deja <Operando> con conflicto FIRST/FIRST: comparte "(" con
+# <ExpresionParentizada> y "idMetVar" con <Primario> ::= idMetVar ... . La forma
+# factorizada que vuelve LL(1) a <Operando> inlinea <Referencia>, <Primario> y
+# <ExpresionParentizada> y reparte sus arranques con estos productos nuevos:
+
+<Operando> ::= <Primitivo>
+<Operando> ::= this <ReferenciaResto>
+<Operando> ::= stringLiteral <ReferenciaResto>
+<Operando> ::= new <RestoNew> <ReferenciaResto>
+<Operando> ::= <LlamadaMetodoEstatico> <ReferenciaResto>
+<Operando> ::= idMetVar <TrasId>
+<Operando> ::= ( <TrasParen>
+
+# <TrasId>: tras "idMetVar", "->" => lambda de 1 parámetro sin paréntesis (x -> e);
+#           cualquier otra cosa => referencia normal (x | x(a) | x.f ...).
+<TrasId> ::= -> <Expresion>
+<TrasId> ::= <ArgsActualesOpcional> <ReferenciaResto>
+
+# <TrasParen>: tras "(", ")" => lambda de 0 parámetros ( () -> e );
+#              si no, se parsea <Expresion> y decide <TrasParenResto>.
+<TrasParen> ::= ) -> <Expresion>
+<TrasParen> ::= <Expresion> <TrasParenResto>
+
+# <TrasParenResto>: tras "( <Expresion>", "," => lista de parámetros => lambda
+#                   de >=2 parámetros ( ( x , y , ... ) -> e );
+#                   ")" => cierra y decide <ColaParen>.
+<TrasParenResto> ::= ) <ColaParen>
+<TrasParenResto> ::= , <ListaIdLambda> ) -> <Expresion>
+
+# <ColaParen>: tras "( <Expresion> )", "->" => era ( x ) -> e => lambda de 1
+#              parámetro (la <Expresion> tiene que ser un idMetVar: se valida en
+#              la etapa semántica); cualquier otra cosa => expresión parentizada
+#              normal ( e ), y se sigue con <ReferenciaResto>.
+<ColaParen> ::= -> <Expresion>
+<ColaParen> ::= <ReferenciaResto>
+```
+
+### Factorización del prefijo `(` — lambda vs. expresión parentizada
+
+**El conflicto.** Al agregar `<Lambda>` como alternativa de `<Operando>`, hay
+dos no terminales alcanzables desde `<Operando>` que arrancan con `(`:
+
+- `<ExpresionParentizada> ::= ( <Expresion> )` (vía `<Referencia> → <Primario>`)
+- `<Lambda> ::= <ParamsLambda> -> <Expresion>` con `<ParamsLambda> ::= ( ... )`
+
+Con el `(` como único token de lookahead el parser no puede decidir cuál de las
+dos tomar: es un conflicto FIRST/FIRST. Y **no se arregla mirando `k` tokens
+fijos**, porque los casos sólo se distinguen *después* del `)` que cierra, y
+adentro del paréntesis puede haber una expresión arbitrariamente larga:
+
+```
+( a + b )            → expresión parentizada
+( a )                → expresión parentizada  (la expresión es sólo 'a')
+( a ) -> a + 1       → lambda de 1 parámetro
+( a , b ) -> a + b   → lambda de 2 parámetros
+( ) -> 0             → lambda de 0 parámetros
+```
+
+`( a )` y `( a ) ->` difieren recién en el token que viene *después* del `)`.
+No hay un `k` que alcance ⇒ la gramática con `<ExpresionParentizada>` y
+`<Lambda>` como alternativas separadas no es LL(k).
+
+**La factorización.** En vez de decidir al ver el `(`, se consume el `(` y se
+posterga la decisión al primer token que sí desambigüe (esto es factorización a
+izquierda: reconocer el prefijo común una sola vez y ramificar después). Tras
+el `(`:
+
+1. Si el siguiente token es `)` → sólo puede ser `( ) ->` ⇒ **lambda de 0
+   parámetros** (`<TrasParen> ::= ) -> <Expresion>`).
+2. Si no, se parsea una `<Expresion>` y se mira el token que sigue
+   (`<TrasParenResto>`):
+   - `,` → era una lista de parámetros ⇒ **lambda**; se siguen leyendo
+     `, idMetVar` hasta el `)` y después se exige `->`.
+   - `)` → se consume y se mira **un** token más (`<ColaParen>`):
+     - `->` → era `( x ) -> ...` ⇒ **lambda de 1 parámetro**.
+     - cualquier otra cosa → era `( <Expresion> )` ⇒ **expresión parentizada**;
+       se sigue con `<ReferenciaResto>` (`.m()`, `[i]`, etc.).
+
+Con eso cada no terminal nuevo (`<TrasParen>`, `<TrasParenResto>`, `<ColaParen>`)
+decide con **un** token de lookahead y sus alternativas tienen FIRST disjuntos
+(`)` vs. `FIRST(<Expresion>)`; `,` vs. `)`; `->` vs. `FOLLOW`), o sea que la
+gramática vuelve a ser LL(1).
+
+**El costo.** El camino `( x ) -> e` parsea `x` como una `<Expresion>` completa
+y recién al ver `->` la reinterpreta como parámetro. La gramática factorizada
+por lo tanto *acepta sintácticamente* cosas como `(a + b) -> e`, que no son
+lambdas válidas. Eso se rechaza en la **etapa semántica** (comprobar que lo que
+está en la posición de parámetro es un único `idMetVar`). Es el precio habitual
+de factorizar este caso; la alternativa sería un *lookahead* acotado en el
+método `operando()` (escanear el paréntesis balanceado y espiar si después
+viene `->`), al estilo de las resoluciones "por convención en el método" del
+Paso 4 — pero eso deja de ser LL(1) estricto en ese punto.
+
+El prefijo `idMetVar` (lambda `x -> e` sin paréntesis vs. acceso a variable) es
+el caso fácil: alcanza **un** token de lookahead — si tras el `idMetVar` viene
+`->` es lambda, si no es una referencia (`<TrasId>`), mismo patrón que ya usa
+`idMetVar <ArgsActualesOpcional>` (`(` → llamada, si no → variable).
+
+**Token nuevo en el léxico.** La flecha `->` no se leía como un token propio
+(daba `OP_MENOS` seguido de `OP_MAYOR`). **Ya está agregado**: `ARROW("op->")`
+en `TokenType` y una rama en `estadoMenos()` del autómata que, por *maximal
+munch*, arma `ARROW` al ver `-` seguido de `>` (misma forma que `--` / `->` /
+`-`). Sirve para los dos modos del léxico (`startAnalizar` push y `nextToken`
+pull) porque ambos pasan por `estadoInicial()`.
+
+### Factorización de `<Sentencia>` — declaración local clásica vs. expresión con `idClase`
+
+**El conflicto.** Al sumar la variable local clásica (`REQ-AS-006`),
+`<Sentencia>` gana alternativas que arrancan con `FIRST(<TipoBase>) = { boolean,
+char, int, idGen, idClase }`. De esos, `boolean` / `char` / `int` / `idGen` no
+están en `FIRST(<Expresion>)`, así que `int x, y, z = 10;` no choca con nada.
+
+`idClase` **sí** está en `FIRST(<Expresion>)`, pero por un único camino:
+`<LlamadaMetodoEstatico> ::= idClase . idMetVar <ArgsActuales>`. O sea:
+
+- en posición de **expresión**, tras `idClase` **siempre** viene `.`
+  (`Fabrica.crear();`);
+- en posición de **tipo** (declaración), tras `idClase` viene `<` (genérico) o
+  `idMetVar` (el nombre de la variable): `Foo x;`, `Foo<Bar> x = ...;`.
+
+**La factorización.** Misma idea que `<TrasId>` en la lambda: se consume
+`idClase` y **un** token más desambigua, sin lookahead extra.
+
+```
+<Sentencia> ::= ... | idClase <SentIdClase> | ... | <Expresion> ;
+
+<SentIdClase> ::= <TipoGenericoOpcional> <RestoDeclLocal>          # decl: Foo x;  Foo<Bar> x = ...;
+              |  . idMetVar <ArgsActuales> <ReferenciaResto> <ExpresionCompuestaResto> <RestoAsignacion> ;   # expr: Foo.m()...;
+```
+
+- Lookahead `.` ⇒ era una expresión; la rama reconstruye la cola de
+  `<Expresion>` que arrancaba en `idClase . idMetVar <ArgsActuales>` (los mismos
+  no terminales que recorrería `expresion()`), así no se pierde lenguaje.
+- Cualquier otro token ⇒ declaración local.
+- FIRST disjuntos: rama-1 = `{ <, idMetVar }` (vía `<TipoGenericoOpcional>` y
+  `<RestoDeclLocal>` anulables hasta `idMetVar`) vs. rama-2 = `{ . }`.
+- La alternativa `<Sentencia> ::= <Expresion> ;` sigue existiendo, pero el
+  método `sentencia()` la prueba **después** de la rama `idClase`, así que en la
+  práctica sólo entra con `FIRST(<Expresion>) \ { idClase }`.
+
+**Init compartido.** `<RestoDeclLocal> ::= idMetVar <MasIdsLocal> <InitLocalOpc> ;`
+admite un único `= <ExpresionCompuesta>` al final para toda la lista de nombres
+(`int x, y, z = 10;`). Que el valor "les llegue a las tres" es una regla
+**semántica**; el sintáctico sólo valida la forma (igual criterio que la
+posición de parámetro en la lambda).
+
+**Sin token nuevo.** No hace falta nada en el léxico: `<TipoPrimitivo>`,
+`idGen`, `idClase`, `,`, `=` y `;` ya existen.
 
 ## Estrategia de análisis: descenso recursivo predictivo (LL(1))
 
@@ -869,6 +1204,14 @@ lookahead**, que es lo que ya insinúa el esqueleto existente (`tokenActual`,
   necesitar retroceder ni pedir más de un token por adelantado. Esto es lo que
   hace que la gramática deba ser LL(1): cada decisión tiene que poder tomarse
   con ese único token.
+- **Producciones anulables (`ϵ`)**: cuando un no terminal tiene una alternativa
+  `ϵ` (`<X> ::= α | ϵ`), el método la representa con un `else` explícito de
+  cuerpo vacío — solo el comentario `// ϵ — no hace nada` — en vez de dejar el
+  `if` sin `else`. Hoy es un no-op y no cambia el análisis, pero deja la rama
+  `ϵ` visible y uniforme como punto de extensión para cuando cada método tenga
+  que devolver o construir algo (AST, acciones semánticas). Los no terminales
+  **sin** `ϵ` conservan en su lugar el `else` que llama a `error(...)`: si
+  ninguna alternativa tiene el lookahead en su FIRST, es un error sintáctico.
 - **`match(TokenType esperado)`**: primitiva común a todos los métodos de no
   terminal.
   - Si `tokenActual.getTipo() == esperado`, consume: pide el próximo token al
@@ -936,49 +1279,136 @@ si se puede evitar, para poder reportar varios errores en una sola corrida.
 
 ## Piezas que va a necesitar el diseño (a definir junto con la implementación)
 
-- `ErrorSintactico`: clase de datos análoga a `ErrorLexico` (línea, token
-  encontrado, tokens esperados, línea fuente) para reportar errores de esta
-  etapa sin mezclarla con `ErrorLexico`.
+- `ErrorSintactico`: hoy existe como `RuntimeException` con línea, lexema del
+  token ofensivo, token encontrado (con nombre y lexema) y token esperado.
+  Falta llevarlo a una **clase de datos** análoga a `ErrorLexico` (que además
+  guarde la línea fuente) para reportar errores de esta etapa sin mezclarla con
+  `ErrorLexico`.
 - Un mecanismo de reporte análogo a `ResultadoLexicoListener` (o reuso de
   alguna interfaz común) para que el Módulo Principal pueda recibir los
   errores sintácticos igual que hoy recibe los léxicos, sin acoplar
   `AnalizadorSintactico` a `System.out` directamente (mismo principio que
   REQ-MP-02: toda salida por `System.out`, pero centralizada en la vista).
-- Un método `analizar<NoTerminal>()` por cada no terminal de la sección
-  "Gramática" — no se pueden escribir en forma definitiva todavía porque esa
-  gramática tiene recursión izquierda sin resolver (ver la nota al final de
-  esa sección).
+  Todavía sin diseñar: hoy `AnalizadorSintacticoImpl` lanza `ErrorSintactico`
+  y `ModuloPrincipalET2` lo captura y lo imprime (un solo error por corrida).
+- Un método por cada no terminal de la sección "Gramática LL(1) resultante" —
+  **ya escrito** en `AnalizadorSintacticoImpl` (uno por no terminal, con el
+  nombre pelado del no terminal en minúscula; ver "Estado actual del código"),
+  más los de la lambda y la variable local clásica de "Gramática Expandida
+  (Logros)". Faltan los del resto del Paso 5 (`REQ-AS-007..014`), que se suman a
+  medida que esas extensiones se reflejen en la gramática.
 
 ## Estado actual del código (pendientes detectados)
 
-- `AnalizadorLexico.nextToken()` está declarado en la interfaz pero sin
-  implementación en `AnalizadorLexicoImpl` (ver más arriba).
-- `AnalizadorSintacticoImpl.match()` no compila: le falta tipo de retorno y
-  cuerpo.
-- `AnalizadorSintacticoImpl.start()` no compila: el `while` compara
-  `tokenActual != TokenType.EOF`, pero `tokenActual` es un `Token` y
-  `TokenType.EOF` es un `TokenType` — la comparación debería ser
-  `tokenActual.getTipo() != TokenType.EOF`; además el cuerpo del `while` está
-  vacío.
+- `AnalizadorLexico.nextToken()` ya está implementado en `AnalizadorLexicoImpl`:
+  modo *pull* sobre el mismo autómata que `startAnalizar()` (un token por
+  llamada; saltea blancos y comentarios; los errores léxicos se siguen
+  reportando por `listener.onError(...)` sin cortar la secuencia; devuelve `EOF`
+  en la última llamada y en todas las siguientes). `src/Model` compila entero y
+  `build.sh` pasa.
+- `AnalizadorSintacticoImpl` ya es la traducción mecánica de la sección
+  "Gramática LL(1) resultante": un método privado por cada no terminal, más la
+  infraestructura `start()` / `match(TokenType)` / `avanzar()` / `actualEs()` /
+  `actualEn()` / `error()` y los conjuntos FIRST como `EnumSet`. Compila de
+  forma aislada (junto con `AnalizadorSintactico`, `ErrorSintactico`,
+  `AnalizadorLexico`, `Token` y `TokenType`). `start()` y `match()` —que antes
+  no compilaban— quedan resueltos.
+  - Los métodos usan el nombre pelado del no terminal (`clase()`,
+    `sentenciaIf()`), no la forma `analizar<NoTerminal>()` que menciona
+    "Estrategia de análisis"; los que chocan con palabras reservadas de Java
+    van con prefijo `sentencia...` (`sentenciaIf`, `sentenciaWhile`,
+    `sentenciaReturn`).
+  - Los 20 no terminales con producción `ϵ` (`listaClases`,
+    `genericidadOpcional`, `herenciaOpcional`, `extensionOpcional`,
+    `listaMiembros`, `listaMetodosInterfaz`, `dimensionesOpcionales`,
+    `tipoGenericoOpcional`, `listaArgsFormalesOpcional`,
+    `listaArgsFormalesResto`, `listaSentencias`, `expresionOpcional`,
+    `elseOpcional`, `restoAsignacion`, `expresionCompuestaResto`,
+    `referenciaResto`, `argsActualesOpcional`, `dimensionesConTamanioOpc`,
+    `listaExpsOpcional`, `restoListaExps`) llevan un `else` vacío explícito
+    (`// ϵ — no hace nada`) como punto de extensión futuro; es un no-op, no
+    cambia el análisis y los 8 tests siguen pasando. Los no terminales sin `ϵ`
+    mantienen el `else` que llama a `error(...)` (ver "Producciones anulables"
+    en "Estrategia de análisis").
+  - **Lambda (`REQ-AS-005`) ya implementada** según "Gramática Expandida
+    (Logros)": se sumó el token `ARROW` (`->`) y `operando()` quedó reescrito
+    con la factorización `<TrasId>` / `<TrasParen>` / `<TrasParenResto>` /
+    `<ColaParen>` / `<ListaIdLambda>` / `<RestoListaIdLambda>`. Eso **inlinea y
+    elimina** los métodos `referencia()`, `primario()` y `expresionParentizada()`
+    (y con ellos la constante `PRIMEROS_PRIMARIO`), porque el reparto de los
+    prefijos `(` e `idMetVar` entre lambda y referencia se hace dentro de
+    `operando()`. El parser sigue decidiendo sólo con FIRST + un token; `ARROW`
+    no está en ningún FIRST. Se acepta sintácticamente `( a + b ) -> e` (costo de
+    la factorización, se filtra en semántica).
+  - **Variable local clásica (`REQ-AS-006`) ya implementada**: `sentencia()`
+    suma ramas para `<TipoPrimitivo>` / `idGen` / `idClase` (esta última con
+    `sentIdClase()` factorizando declaración vs. llamada estática por el token
+    que sigue al `idClase`), más `restoDeclLocal()` / `masIdsLocal()` /
+    `initLocalOpc()`. `PRIMEROS_SENTENCIA` suma `boolean` / `char` / `int` /
+    `idGen`. La rama `<Expresion> ;` se prueba después de la de `idClase`. La
+    forma con `var` (`varLocal()`) queda intacta.
+  - No cubren todavía las extensiones `REQ-AS-007..014` (resto del Paso 5) ni la
+    recuperación en modo pánico (`REQ-AS-008`): hoy `error()` lanza
+    `ErrorSintactico` y corta en el primer error.
+- `ErrorSintactico` existe como `RuntimeException` con línea, lexema del token
+  ofensivo, encontrado y esperado. Falta la versión "clase de datos" con línea
+  fuente y el mecanismo de reporte tipo listener (ver "Piezas que va a
+  necesitar el diseño").
+- `ModuloPrincipalET2` (en `View`) es el punto de entrada de la etapa 2: abre
+  el fuente, arma `AnalizadorLexicoImpl` + `AnalizadorSintacticoImpl` (léxico
+  en modo *pull*) y corre `start()`. Si termina sin errores imprime
+  `[SinErrores]`; si atrapa un `ErrorSintactico` imprime una línea legible más
+  la etiqueta `[Error:<lexema>|<linea>]` (mismo formato que el error léxico de
+  `ModuloPrincipal`). Es un espejo de `ModuloPrincipal` (solo léxico) y no toca
+  la cadena de la etapa 1. El wiring se hace directo en la vista: el paso por
+  `AnalizadorHandler` y un listener sintáctico quedan pendientes.
+- Los testers `TesterSintacticoDeCasosSinErrores` / `TesterSintacticoDeCasosConErrores`
+  (en `src/test/java`, recursos en `resources/sintactico/{sinErrores,conErrores}/`)
+  corren contra `ModuloPrincipalET2`. 25 casos (8 sin error + 17 con error),
+  `OK (25 tests)`. Cobertura propia por extensión:
+  - Lambda: `sintCorrecto05..07` (las cinco formas, contextos variados,
+    anidadas/currificación) y `sintError05..12` (cuerpo entre llaves / varias
+    sentencias, parámetro con tipo, sin cuerpo, coma colgante, sin flecha, sin
+    `)` de cierre, sólo la flecha) — con 0, 1, pocos y muchos parámetros.
+  - Variable local clásica: `sintCorrecto08` (`int x;`, `int x, y, z = 10;`,
+    `T g;`, `Foo x;`, `Foo<Bar> x = new Foo<Bar>();`, conviviendo con `var` y
+    con `Clase.metodo();`) y `sintError13..17` (sin `;`, nombre no idMetVar,
+    coma colgante, dos nombres sin coma, init vacío).
+
+  Los 4 testers juntos (léxico + sintáctico) dan `OK (63 tests)`.
 - `SIntaxis.md` solo tiene la introducción y notación (BNF, terminal/no
-  terminal), no la gramática en sí; la gramática de partida vive por ahora en
-  la sección "Gramática" de este documento (copiada de
-  `Reglas de Sintaxis MiniJava 2026.pdf`), pendiente de los ajustes de LL(1)
-  mencionados ahí.
+  terminal), no la gramática en sí; la gramática de partida y su versión ya
+  transformada a LL(1) viven por ahora en la sección "Gramática" de este
+  documento (la de partida copiada de `Reglas de Sintaxis MiniJava 2026.pdf`).
 
 ## Próximos pasos
 
-1. Ajustar la gramática de la sección "Gramática" a LL(1): eliminar la
-   recursión izquierda señalada (`<ListaArgsFormales>`, `<ExpresionCompuesta>`,
-   `<Referencia>`), confirmar que las producciones con `|` tengan FIRST
-   disjuntos factorizando donde no sea así, y sumar la producción de expresión
-   lambda (`<Lambda>` / `<ParamsLambda>`, `REQ-AS-005`) resolviendo el conflicto
-   del prefijo `(` con `<ExpresionParentizada>`.
-2. A partir de esa gramática, derivar el conjunto de métodos
-   `analizar<NoTerminal>()` de `AnalizadorSintacticoImpl`, siguiendo el
-   esqueleto de `start()`/`match()` descripto acá.
-3. Implementar `nextToken()` en `AnalizadorLexicoImpl` sin romper
-   `startAnalizar()` (los dos deberían poder convivir sobre el mismo
-   autómata).
-4. Definir `ErrorSintactico` y el mecanismo de reporte, y enchufar
-   `AnalizadorSintactico` al `AnalizadorHandler` / Módulo Principal.
+1. Hecho — la gramática de partida ya está transformada a LL(1) en la sección
+   "Gramática LL(1) resultante" (eliminación de la ambigüedad
+   `<Asignacion>`/`<Llamada>`, de la recursión izquierda de
+   `<ListaArgsFormales>` / `<ExpresionCompuesta>` / `<Referencia>`, y
+   factorización de `<Miembro>` / `<Sentencia>` / `<Primario>` / `new`). Del
+   **Paso 5** ya están integradas (sección "Gramática Expandida (Logros)") la
+   **lambda (`REQ-AS-005`)** —con "Factorización del prefijo `(`" y el token
+   `ARROW`— y la **variable local clásica (`REQ-AS-006`)** —con "Factorización
+   de `<Sentencia>`"—. Faltan `REQ-AS-007..014` sobre esa base, reaplicando los
+   pasos 1–3 a cada no terminal que toquen (el `<` / `>` / `>>` de los genéricos
+   anidados sigue siendo el punto abierto).
+2. Hecho — `AnalizadorSintacticoImpl` es la traducción de esa gramática (un
+   método por no terminal, sobre el esquema `start()` / `match()` descripto
+   acá), **incluidas la lambda** (`operando()` reescrito + `trasId()` /
+   `trasParen()` / `trasParenResto()` / `colaParen()` / `listaIdLambda()` /
+   `restoListaIdLambda()`; `referencia()` / `primario()` / `expresionParentizada()`
+   inlineados) **y la variable local clásica** (ramas nuevas en `sentencia()` +
+   `sentIdClase()` / `restoDeclLocal()` / `masIdsLocal()` / `initLocalOpc()`).
+   Falta sumarle los métodos de `REQ-AS-007..014` a medida que se defina la
+   gramática de esas extensiones.
+3. Hecho — `nextToken()` implementado en `AnalizadorLexicoImpl` en modo *pull*
+   sobre el mismo autómata que `startAnalizar()`, sin tocar el camino de la
+   etapa 1. `src/Model` compila entero.
+4. Parcial — `ModuloPrincipalET2` ya corre el sintáctico y reporta el primer
+   error como `[Error:<lexema>|<linea>]` (los testers sintácticos pasan). Falta:
+   recuperación en modo pánico (`REQ-AS-008`, hoy `error()` corta en el primer
+   error), la versión "clase de datos" de `ErrorSintactico` con línea fuente, y
+   un mecanismo de reporte análogo a `ResultadoLexicoListener` que saque el
+   wiring de la vista y lo pase por `AnalizadorHandler`.
