@@ -44,14 +44,14 @@ distintos y conviene poder citarlos sin ambigüedad.
 | REQ-AS-004 | Al terminar de derivar el símbolo inicial de la gramática, el analizador debe verificar que no queden tokens sin consumir salvo el de fin de archivo; si sobran, es un error sintáctico (ver "`start()`" en "Estrategia de análisis"). |
 | REQ-AS-005 | El analizador sintáctico debe aceptar **expresiones lambda** con sintaxis similar a la de Java (`params -> cuerpo`). A diferencia de Java: los parámetros no declaran tipo explícito, el cuerpo es **una única expresión** (no se admite cuerpo entre llaves) y se permite cualquier cantidad de parámetros, incluido ninguno (`() -> expr`). La prohibición de capturar variables locales, parámetros o `this` dentro de la lambda es una restricción **semántica** (requiere resolución de nombres/alcances): queda anotada acá pero se verifica en una etapa posterior; el sintáctico solo valida la forma. Ver detalle debajo. |
 | REQ-AS-006 | El analizador sintáctico debe aceptar la declaración de variables locales en la forma clásica de Java: sin `var`, indicando el tipo (ejemplo `int x;`). Además debe admitir declarar varias variables e inicializarlas en una misma sentencia (ejemplo `int x,y,z = 10;`, un valor común al final para toda la lista; a qué variables les llega es semántico). **Implementado** — ver "Gramática Expandida (Logros)" y "Factorización de `<Sentencia>`". |
-| REQ-AS-007 | El analizador sintáctico debe permitir indicar la visibilidad de métodos, atributos y constructores de forma implícita o explícita: al declarar un miembro se puede omitir la visibilidad o indicar explícitamente `public` o `private`. Pendiente de reflejar en la gramática (ver nota en "Gramática"). |
+| REQ-AS-007 | El analizador sintáctico debe permitir indicar la visibilidad de métodos, atributos y constructores de forma implícita o explícita: al declarar un miembro se puede omitir la visibilidad o indicar explícitamente `public` o `private`. **Implementado** — ver "Gramática Expandida (Logros)" y "Factorización de `<Miembro>`". |
 | REQ-AS-008 | El compilador no finaliza la ejecución ante el primer error sino que se recupera (modo pánico) y es capaz de reportar otros errores. Para eso, al encontrar un error, el analizador descarta la entrada hasta encontrar un token de sincronización que permita reanudar el análisis: se espera que se sincronice con el siguiente punto y coma, llave de cierre, o llave que abre según el contexto (ver "Manejo de errores sintácticos"). |
-| REQ-AS-009 | El analizador sintáctico debe aceptar sentencias `for` similares a las de Java, en dos formas: la estándar con separadores `;` y la de iteradores (for-each) con `:`. Se restringe cada sección del `for` a una sola sentencia/expresión (no listas separadas por coma). Pendiente de reflejar en la gramática (ver nota en "Gramática"). |
-| REQ-AS-010 | El analizador sintáctico debe permitir tipos genéricos anidados y la notación diamante (`<>`), de forma similar a Java. Una clase o interfaz sigue limitada a un único parámetro de tipo. La notación diamante solo puede utilizarse al instanciar una clase genérica. Pendiente de reflejar en la gramática (ver nota en "Gramática"). |
-| REQ-AS-011 | El analizador sintáctico debe permitir inicializar los atributos en el momento de su declaración, al igual que en Java. Pendiente de reflejar en la gramática (ver nota en "Gramática"). |
-| REQ-AS-012 | El analizador sintáctico debe permitir la inicialización de arreglos al momento de su construcción, como en Java. Solo se admite como parte de una expresión de creación que utiliza `new`. Pendiente de reflejar en la gramática (ver nota en "Gramática"). |
-| REQ-AS-013 | El analizador sintáctico debe permitir el operador condicional ternario dentro de las expresiones, como en Java (`condición ? expr_verdadera : expr_falsa`). Pendiente de reflejar en la gramática (ver nota en "Gramática"). |
-| REQ-AS-014 | El analizador sintáctico debe permitir los operadores unarios postfijos de incremento (`++`) y decremento (`--`). Pendiente de reflejar en la gramática (ver nota en "Gramática"). |
+| REQ-AS-009 | El analizador sintáctico debe aceptar sentencias `for` similares a las de Java, en dos formas: la estándar con separadores `;` y la de iteradores (for-each) con `:`. Se restringe cada sección del `for` a una sola sentencia/expresión (no listas separadas por coma). **Implementado** — ver "Gramática Expandida (Logros)" y "Factorización de `<For>`". Las tres secciones de la forma clásica son opcionales (`for (;;)`, como en Java); el for-each no admite `var` (sólo tipo explícito). |
+| REQ-AS-010 | El analizador sintáctico debe permitir tipos genéricos anidados y la notación diamante (`<>`), de forma similar a Java. Una clase o interfaz sigue limitada a un único parámetro de tipo. La notación diamante solo puede utilizarse al instanciar una clase genérica. **Implementado** — ver "Gramática Expandida (Logros)". La declaración de clase/interfaz (`<GenericidadOpcional>`) no cambió: sigue con un único parámetro de tipo. |
+| REQ-AS-011 | El analizador sintáctico debe permitir inicializar los atributos en el momento de su declaración, al igual que en Java. **Implementado** — ver "Gramática Expandida (Logros)" (`<RestoMiembro>`). |
+| REQ-AS-012 | El analizador sintáctico debe permitir la inicialización de arreglos al momento de su construcción, como en Java. Solo se admite como parte de una expresión de creación que utiliza `new`. **Implementado** — ver "Gramática Expandida (Logros)" (`<DimensionesNew>` / `<InicializadorArreglo>`). |
+| REQ-AS-013 | El analizador sintáctico debe permitir el operador condicional ternario dentro de las expresiones, como en Java (`condición ? expr_verdadera : expr_falsa`). **Implementado** — ver "Gramática Expandida (Logros)" y "Precedencia del operador ternario". |
+| REQ-AS-014 | El analizador sintáctico debe permitir los operadores unarios postfijos de incremento (`++`) y decremento (`--`). **Implementado** — ver "Gramática Expandida (Logros)" y "Postfijo `++`/`--`". |
 
 **Detalle de REQ-AS-001 — la gramática de MiniJava no es LL(1).** La gramática
 de partida (sección "Gramática", tal como la entrega la cátedra) no cumple la
@@ -106,7 +106,8 @@ implementada en `AnalizadorSintacticoImpl`:
 - **Dónde enchufa**: la lambda es una forma de expresión; entra como
   alternativa de `<Operando>`. Usa `->` como token del léxico (`ARROW`) y sumó
   los no terminales `<Lambda>` / `<ParamsLambda>` (que al factorizar se vuelven
-  `<TrasId>` / `<TrasParen>` / `<TrasParenResto>` / `<ColaParen>` / `<ListaIdLambda>`).
+  `<TrasId>` / `<TrasParen>` / `<TrasParenId>` / `<DecidirTrasCierre>` /
+  `<ListaIdLambda>`).
 - **Conflicto LL(1) conocido**: el prefijo `(` es ambiguo entre
   `( <Expresion> )` (`<ExpresionParentizada>`), `( ) ->` y
   `( idMetVar , ... ) ->`. Con un solo token de lookahead no se distingue una
@@ -118,6 +119,27 @@ implementada en `AnalizadorSintacticoImpl`:
   nombres y alcances), fuera del alcance de esta etapa. Queda anotada en el
   requerimiento y se verifica en la etapa semántica posterior; el sintáctico
   solo valida la forma de la lambda.
+
+**Detalle de REQ-AS-007 — visibilidad de miembros.** La gramática concreta está
+en "Gramática Expandida (Logros)" y ya está implementada:
+
+- **Forma**: `<Visibilidad> ::= public | private | ϵ` como prefijo opcional de
+  todo `<Miembro>` (atributo, método y constructor). Omitirla = visibilidad
+  implícita; qué visibilidad implica y si `private` es legal en cada contexto se
+  resuelve en la etapa semántica.
+- **Efecto sobre el constructor**: deja de escribirse `public idClase (...)` con
+  `public` obligatorio; pasa a `<Visibilidad> idClase <ArgsFormales> <Bloque>`
+  (con `public`, `private` o nada).
+- **Conflicto LL(1) que introduce**: al no ser ya `public` el token que marca al
+  constructor, tras `<Visibilidad>` el prefijo `idClase` queda compartido entre
+  constructor (`idClase (`) y atributo/método de tipo clase (`idClase <` /
+  `idClase [` / `idClase idMetVar`). Se factoriza en profundidad sobre `idClase`
+  (`<TrasIdClaseMiembro>`), misma técnica que `<RestoNewIdClase>` y
+  `<SentIdClase>`. Detalle en "Factorización de `<Miembro>`".
+- **Token nuevo en el léxico**: `private` no era palabra clave (`public` sí,
+  `PR_PUBLIC`); hay que sumar `PR_PRIVATE` a `TokenType` y `TablaPalabrasClave`.
+- **Interfaces**: `<MetodoInterfaz>` no cambia — los métodos de interfaz quedan
+  implícitamente `public`, sin sintaxis de visibilidad.
 
 ## Gramática
 
@@ -302,43 +324,75 @@ más `<SentIdClase>` / `<RestoDeclLocal>` / `<MasIdsLocal>` / `<InitLocalOpc>`) 
 en el código. El detalle del conflicto del prefijo `idClase` está en
 "Factorización de `<Sentencia>`". La forma `var idMetVar = ...` queda intacta.
 
-Falta reflejar la **visibilidad de miembros** (`REQ-AS-007`): `public` /
-`private` opcional en atributos, métodos y constructores — hoy `<Atributo>` y
-`<Metodo>` no tienen ranura de visibilidad, `<ModificadorOpcional>` solo cubre
-`static`, y `<Constructor>` fuerza `public`. A resolver en una revisión futura
-de esta sección.
+La **visibilidad de miembros** (`REQ-AS-007`) —`public` / `private` opcional en
+atributos, métodos y constructores— **ya está reflejada** en "Gramática
+Expandida (Logros)": `<Visibilidad> ::= public | private | ϵ` como prefijo común
+de `<Miembro>`, con `<Constructor>` pasando de `public idClase (...)` obligatorio
+a `<Visibilidad> idClase (...)`. La factorización profunda sobre `idClase` que
+esto obliga (constructor vs. tipo clase, ya que `public` deja de marcar al
+constructor) está en "Factorización de `<Miembro>`". `<Atributo>`, `<Metodo>`,
+`<Constructor>` y `<ModificadorOpcional>` de la gramática de partida siguen sin
+usarse en la expandida (ya inlineados desde el Paso 2.2).
 
-Falta reflejar la sentencia **`for`** (`REQ-AS-009`): forma estándar con
-separadores `;` y forma de iteradores (for-each) con `:`, con una sola
-sentencia/expresión por sección — hoy `<Sentencia>` solo tiene `<If>` y
-`<While>` como estructuras de control. A resolver en una revisión futura de esta
-sección.
+La sentencia **`for`** (`REQ-AS-009`) —forma estándar con separadores `;` y
+forma de iteradores (for-each) con `:`, con una sola sentencia/expresión por
+sección— **ya está reflejada** en "Gramática Expandida (Logros)":
+`<Sentencia> ::= <For>`, con `<For> ::= for ( <ClausulasFor> ) <Sentencia>` (el
+cuerpo es `<Sentencia>`, igual que `<If>`/`<While>`, no un `<Bloque>`
+obligatorio). Las dos formas comparten el prefijo `<Tipo> idMetVar`, que se
+factoriza igual que en el resto del documento; el detalle está en
+"Factorización de `<For>`".
 
-Falta reflejar los **genéricos anidados y la notación diamante** (`REQ-AS-010`):
-hoy `<TipoGenericoOpcional> ::= < <InstanciadoOParametrico> >` solo admite un
-`idGen`/`idClase` suelto, sin anidar, y no contempla `<>`. La clase/interfaz
-sigue con un único parámetro de tipo (`<GenericidadOpcional>`) y el diamante solo
-aplica al instanciar una clase genérica (`<LlamadaConstructor>`). A resolver en
-una revisión futura de esta sección.
+Los **genéricos anidados y la notación diamante** (`REQ-AS-010`) —
+`Caja<Lista<Item>>` y `new Caja<>()`— **ya están reflejados** en "Gramática
+Expandida (Logros)": `<InstanciadoOParametrico>` pasó a recursar en su rama
+`idClase` (llama de nuevo a `<TipoGenericoOpcional>`), lo que habilita el
+anidado en todos los contextos que ya usaban ese no terminal (atributos,
+variables locales, `for`, `new`), sin tocarlos. El diamante es aparte, sólo
+válido al instanciar: `<RestoNew>` pasa a usar `<TipoGenericoOpcionalNew>` /
+`<DiamanteOTipo>` (interior vacío permitido), mientras que
+`<TipoGenericoOpcional>` (el resto de contextos) sigue exigiendo un argumento
+real — `Foo<> x;` sigue siendo error. La clase/interfaz sigue con un único
+parámetro de tipo (`<GenericidadOpcional>` no cambió). El cierre `>>` de un
+anidado tokeniza como dos `OP_MAYOR` sueltos (`estadoMayor()` sólo combina con
+`=`), así que no hizo falta ningún cambio en el léxico — ver el hazard
+correspondiente, ya resuelto, en "Hazards que todavía no violan LL(1)".
 
-Falta reflejar la **inicialización de atributos en la declaración**
-(`REQ-AS-011`): hoy `<Atributo> ::= <Tipo> idMetVar ;` no admite un
-`= <Expresion>` antes del `;`. A resolver en una revisión futura de esta sección.
+La **inicialización de atributos en la declaración** (`REQ-AS-011`) —
+`<Atributo> ::= <Tipo> idMetVar ;` no admitía un `= <Expresion>` antes del
+`;`— **ya está reflejada** en "Gramática Expandida (Logros)": `<RestoMiembro>`
+suma la alternativa `<OperadorAsignacion> <ExpresionCompuesta> ;`. Sin
+conflicto LL(1) que resolver (FIRST `{ = }` disjunto de `{ ; }` y `{ ( }`), así
+que no hizo falta ninguna factorización nueva.
 
-Falta reflejar la **inicialización de arreglos en la construcción**
-(`REQ-AS-012`): hoy `<CrearArreglo> ::= new <TipoBase> <DimensionesConTamanio>`
-solo admite dimensiones con tamaño y no contempla un inicializador entre llaves;
-se admite únicamente como parte de una expresión de creación con `new`. A
-resolver en una revisión futura de esta sección.
+La **inicialización de arreglos en la construcción** (`REQ-AS-012`) —
+`<CrearArreglo> ::= new <TipoBase> <DimensionesConTamanio>` no admitía un
+inicializador entre llaves, y sólo se admite como parte de una expresión de
+creación con `new`, nunca en otro lado— **ya está reflejada** en "Gramática
+Expandida (Logros)": `<DimensionesNew>` reemplaza a `<DimensionesConTamanio>`
+en `<RestoNew>`/`<RestoNewIdClase>` y, tras el primer `[`, decide con **un**
+token más (`]` inmediato vs. una expresión) entre la forma de tamaño de
+siempre y una forma nueva con todos los corchetes vacíos seguida de un
+`<InicializadorArreglo>` (`{ 1, 2, 3 }`) obligatorio — no se pueden mezclar
+tamaño e inicializador, igual que en Java. `<ValorArreglo>` admite anidar otro
+inicializador, así que los multidimensionales (`new int[][]{{1,2},{3,4}}`)
+salen sin costo adicional.
 
-Falta reflejar el **operador condicional ternario** (`REQ-AS-013`):
-`condición ? expr : expr` dentro de las expresiones — hoy la jerarquía de
-`<Expresion>` / `<ExpresionCompuesta>` / `<ExpresionBasica>` no contempla
-`? :`. A resolver en una revisión futura de esta sección.
+**Ya está reflejado** el **operador condicional ternario** (`REQ-AS-013`):
+`condición ? expr : expr` se agrega como sufijo opcional de `<ExpresionCompuesta>`
+(no de `<ExpresionBasica>`), para que la condición sea la cadena binaria completa
+y el ternario quede con menos precedencia que cualquier operador binario, igual
+que en Java — ver "Precedencia del operador ternario" para el detalle y un bug
+real que apareció al integrarlo.
 
-Falta reflejar los **operadores unarios postfijos `++` y `--`** (`REQ-AS-014`):
-hoy `<OperadorUnario> ::= + | - | !` es solo prefijo y no hay forma postfija
-sobre un operando. A resolver en una revisión futura de esta sección.
+**Ya están reflejados** los **operadores unarios postfijos `++` y `--`**
+(`REQ-AS-014`): `<PostfijoOpcional>` se agrega dentro de `<ExpresionBasica>`,
+pegado a `<Operando>` (no como sufijo de `<ExpresionCompuesta>`), para que
+aplique a cada término de la cadena binaria y no sólo al primero — ver
+"Postfijo `++`/`--`" para el detalle, incluida la misma clase de bug de
+`<TrasParenId>` que ya había aparecido con el ternario. `<OperadorUnario> ::=
++ | - | !` no cambia: sigue siendo sólo prefijo, el prefijo `++`/`--` queda
+fuera de alcance de este requerimiento.
 
 Estos ajustes (eliminar recursión izquierda, reescribiendo esas producciones
 como repetición a derecha con un no terminal auxiliar tipo `<...Resto>`;
@@ -352,11 +406,12 @@ Para un descenso recursivo predictivo con un token de lookahead, cada no
 terminal con más de una alternativa tiene que poder elegir rama mirando un solo
 token, y ningún no terminal puede ser recursivo a izquierda. Repasando la
 gramática de partida tal como está en el bloque de arriba (sin contar las
-extensiones del Paso 5 —`REQ-AS-007..014`, más la lambda de `REQ-AS-005` y la
-variable local clásica de `REQ-AS-006`, que ya viven en "Gramática Expandida
-(Logros)"—, que suman sus propios conflictos ya anotados en las notas
-anteriores), estas son las reglas que lo impiden, agrupadas por tipo de
-problema.
+extensiones del Paso 5 —`REQ-AS-005..014`, de las cuales `REQ-AS-005` (lambda),
+`REQ-AS-006` (variable local clásica), `REQ-AS-007` (visibilidad) y
+`REQ-AS-009` (`for`) ya viven en "Gramática Expandida (Logros)"—, que suman sus
+propios conflictos ya anotados en
+las notas anteriores), estas son las reglas que lo impiden, agrupadas por tipo
+de problema.
 
 #### 1. Recursión a izquierda
 
@@ -413,12 +468,18 @@ falta reescribir la gramática, solo fijar esa prioridad en el método.
 
 #### 5. Hazards que todavía no violan LL(1) pero conviene registrar
 
-- **`<` / `>` como operador relacional y como delimitador de genéricos.** En la
-  gramática de partida no chocan porque `<TipoGenericoOpcional>` /
-  `<GenericidadOpcional>` solo aparecen en contexto de tipo y `<OperadorBinario>`
-  solo en contexto de expresión. Con `REQ-AS-010` (genéricos anidados
-  `List<List<X>>`, notación `<>`) el cierre `>>` y la decisión "¿`<` abre
-  genérico o es menor-que?" pasan a necesitar tratamiento especial.
+- **`<` / `>` como operador relacional y como delimitador de genéricos
+  (`REQ-AS-010`, ya resuelto).** En la gramática de partida no chocan porque
+  `<TipoGenericoOpcional>` / `<GenericidadOpcional>` solo aparecen en contexto
+  de tipo y `<OperadorBinario>` solo en contexto de expresión — eso sigue
+  igual con genéricos anidados (`List<List<X>>`), porque anidar no cambia
+  desde qué método se llama a `tipoGenericoOpcional()`. Y el cierre `>>`
+  **no necesitó tratamiento especial**, a diferencia de lo que esta nota
+  especulaba originalmente (la ambigüedad clásica de Java, donde `>>` es
+  también el operador de shift): `AnalizadorLexicoImpl.estadoMayor()` sólo
+  combina con `=` (para `>=`), así que `List<List<X>>` ya tokeniza como dos
+  `OP_MAYOR` sueltos y cada nivel de anidamiento consume el suyo con su propio
+  `match(OP_MAYOR)` en `tipoGenericoOpcional()`.
 - **`(` sobrecargado.** `<ExpresionParentizada>`, `<ArgsActuales>`,
   `<ArgsFormales>` y —con `REQ-AS-005`— el arranque de una lambda `( ... ) ->`.
   Ya anotado en el "Detalle de REQ-AS-005".
@@ -478,9 +539,10 @@ tiene el `=` de asignación en la raíz).
 
 Esto deja todos los operadores binarios en una sola cadena asociativa a
 izquierda y sin niveles de precedencia — que es exactamente cómo ya los trataba
-la gramática de partida, así que no hay regresión. Si más adelante se quiere
-precedencia (p. ej. por `REQ-AS-013`), se introduce la escalera de no terminales
-por nivel en ese momento.
+la gramática de partida, así que no hay regresión. El ternario (`REQ-AS-013`,
+ver "Precedencia del operador ternario") no necesitó esta escalera: alcanza con
+colgarlo como sufijo de `<ExpresionCompuesta>` para que quede por debajo de
+toda la cadena binaria.
 
 **1.3 `<Referencia>`** — `β = <Primario>`, con tres `α`
 (`<VarEncadenada>`, `<MetodoEncadenado>`, `<AccesoArreglo>`):
@@ -626,14 +688,32 @@ correspondiente:
 #### Paso 5 — Al incorporar `REQ-AS-007..014`
 
 Cada extensión pendiente vuelve a pasar por los pasos 1–3 sobre los no
-terminales que toca. **Ya están incorporadas** dos: la lambda (`REQ-AS-005`),
-con su gramática factorizada en "Gramática Expandida (Logros)" y el conflicto
-del prefijo `(` en "Factorización del prefijo `(`"; y la variable local clásica
-(`REQ-AS-006`), con el conflicto del prefijo `idClase` en "Factorización de
-`<Sentencia>`". De lo que queda, el `<` / `>` de los genéricos anidados y `<>`
-(`REQ-AS-010`, incluye el cierre `>>`) tiene diagnóstico propio; el resto
-(visibilidad, `for`, inicializadores, ternario, `++`/`--`) son alternativas
-nuevas que se factorizan con las mismas técnicas al agregarlas.
+terminales que toca. **Ya están incorporadas** siete: la lambda
+(`REQ-AS-005`), con su gramática factorizada en "Gramática Expandida (Logros)"
+y el conflicto del prefijo `(` en "Factorización del prefijo `(`"; la variable
+local clásica (`REQ-AS-006`), con el conflicto del prefijo `idClase` en
+"Factorización de `<Sentencia>`"; la visibilidad de miembros (`REQ-AS-007`),
+con la factorización profunda sobre `idClase` (constructor vs. tipo clase) en
+"Factorización de `<Miembro>`"; el `for` (`REQ-AS-009`), con el conflicto
+clásico-vs-for-each (prefijo `<Tipo> idMetVar` compartido) y el mismo choque de
+`idClase` en "Factorización de `<For>`"; los genéricos anidados y la notación
+diamante (`REQ-AS-010`), que no necesitaron ninguna factorización nueva (sólo
+`<InstanciadoOParametrico>` recursando y una variante ϵ-decidible para el
+diamante en `<RestoNew>`) — el `<` / `>` / `>>` que se anotaba como
+"diagnóstico propio" resultó no ser un problema real, ver el hazard
+correspondiente; los inicializadores de atributo (`REQ-AS-011`), una
+alternativa más de `<RestoMiembro>` con FIRST disjunto de las otras dos (sin
+factorización); y los inicializadores de arreglo entre llaves (`REQ-AS-012`),
+con un conflicto chico y puntual: tras el primer `[` de una creación con
+`new`, un `]` inmediato compromete a la forma con inicializador (corchetes
+vacíos + `{ ... }` obligatorio) en vez de la forma de tamaño de siempre —
+mismo patrón de "un token más decide" que el resto del documento, sin
+necesitar factorización profunda; el ternario (`REQ-AS-013`), colgado de
+`<ExpresionCompuesta>` como sufijo opcional (ver "Precedencia del operador
+ternario") — sin conflicto que factorizar, un solo token (`?`) decide; y el
+postfijo `++`/`--` (`REQ-AS-014`), colgado de `<ExpresionBasica>` (ver
+"Postfijo `++`/`--`") — también sin conflicto, un solo token (`OP_INCREMENTO`
+u `OP_DECREMENTO`) decide.
 
 ### Gramática LL(1) resultante
 
@@ -644,12 +724,14 @@ factorización a izquierda). Misma notación BNF; no terminal inicial `<Inicial>
 Alcance y límites de esta versión:
 
 - Este bloque **no** incorpora las extensiones del **Paso 5**. La lambda
-  (`REQ-AS-005`) y la variable local clásica (`REQ-AS-006`) ya están integradas,
-  pero en la sección aparte "Gramática Expandida (Logros)", no acá. Quedan
-  pendientes `REQ-AS-007..014` (visibilidad de miembros, `for`, genéricos
-  anidados y diamante, inicializadores de atributo y de arreglo, ternario,
-  `++`/`--`): se van a ir sumando sobre esta base reaplicando los pasos 1–3 a
-  los no terminales que toque cada una.
+  (`REQ-AS-005`), la variable local clásica (`REQ-AS-006`), la visibilidad de
+  miembros (`REQ-AS-007`), el `for` (`REQ-AS-009`), los genéricos anidados y
+  la notación diamante (`REQ-AS-010`), los inicializadores de atributo
+  (`REQ-AS-011`), los inicializadores de arreglo entre llaves (`REQ-AS-012`),
+  el ternario (`REQ-AS-013`) y el postfijo `++`/`--` (`REQ-AS-014`) ya están
+  integrados, pero en la sección aparte "Gramática Expandida (Logros)", no
+  acá. El **Paso 5 queda completo**: no hay más extensiones pendientes de
+  reflejar en la gramática.
 - Quedan dos conflictos **deliberados** que no se reescriben y se resuelven por
   convención en el método correspondiente (Paso 4): `<ElseOpcional>` sobre
   `else` (liga con el `if` más cercano) y `<DimensionesConTamanioOpc>` sobre `[`
@@ -885,12 +967,25 @@ una `IOException` del `SourceManager` se re-lanza envuelta en
 
 <ListaMetodosInterfaz> ::= <MetodoInterfaz> <ListaMetodosInterfaz> | ϵ
 
-<Miembro> ::= public idClase <ArgsFormales> <Bloque>
-<Miembro> ::= static <TipoMetodo> idMetVar <ArgsFormales> <Bloque>
-<Miembro> ::= void idMetVar <ArgsFormales> <Bloque>
-<Miembro> ::= <Tipo> idMetVar <RestoMiembro>
+# REQ-AS-007 · visibilidad: <Visibilidad> es prefijo común de todo miembro.
+# public deja de marcar al constructor => hay que factorizar la rama idClase
+# entre constructor (idClase "(") y tipo clase (idClase "<" / "[" / idMetVar).
+<Miembro> ::= <Visibilidad> <CuerpoMiembro>
 
-<RestoMiembro> ::= ; | <ArgsFormales> <Bloque>
+<Visibilidad> ::= public | private | ϵ
+
+<CuerpoMiembro> ::= static <TipoMetodo> idMetVar <ArgsFormales> <Bloque>
+<CuerpoMiembro> ::= void idMetVar <ArgsFormales> <Bloque>
+<CuerpoMiembro> ::= <TipoPrimitivo> <DimensionesOpcionales> idMetVar <RestoMiembro>
+<CuerpoMiembro> ::= idGen <DimensionesOpcionales> idMetVar <RestoMiembro>
+<CuerpoMiembro> ::= idClase <TrasIdClaseMiembro>
+
+<TrasIdClaseMiembro> ::= <ArgsFormales> <Bloque>
+<TrasIdClaseMiembro> ::= <TipoGenericoOpcional> <DimensionesOpcionales> idMetVar <RestoMiembro>
+
+# REQ-AS-011 · inicializador de atributo: tercera rama de <RestoMiembro>, FIRST
+# { = } disjunto de { ; } y { ( } — sin conflicto LL(1) que factorizar.
+<RestoMiembro> ::= ; | <ArgsFormales> <Bloque> | <OperadorAsignacion> <ExpresionCompuesta> ;
 
 <MetodoInterfaz> ::= <TipoMetodo> idMetVar <ArgsFormales> ;
 
@@ -908,7 +1003,11 @@ una `IOException` del `SourceManager` se re-lanza envuelta en
 
 <TipoGenericoOpcional> ::= < <InstanciadoOParametrico> > | ϵ
 
-<InstanciadoOParametrico> ::= idGen | idClase
+# REQ-AS-010 · genéricos anidados: la rama idClase recursa en <TipoGenericoOpcional>
+# (antes era idClase a secas). Habilita Caja<Lista<Item>> en todo lo que ya usaba
+# <TipoGenericoOpcional> (no hace falta tocar esos no terminales). idGen no
+# anida: un parámetro de tipo no puede llevar su propio argumento.
+<InstanciadoOParametrico> ::= idGen | idClase <TipoGenericoOpcional>
 
 <ArgsFormales> ::= ( <ListaArgsFormalesOpcional> )
 
@@ -932,6 +1031,7 @@ una `IOException` del `SourceManager` se re-lanza envuelta en
 <Sentencia> ::= <Return> ;
 <Sentencia> ::= <If>
 <Sentencia> ::= <While>
+<Sentencia> ::= <For>
 <Sentencia> ::= <Bloque>
 <Sentencia> ::= <Expresion> ;      # sólo si el lookahead ∈ FIRST(<Expresion>) \ { idClase }
 
@@ -951,6 +1051,32 @@ una `IOException` del `SourceManager` se re-lanza envuelta en
 
 <MasIdsLocal> ::= , idMetVar <MasIdsLocal> | ϵ
 
+# --- REQ-AS-009 · sentencia "for" (clásica y for-each) -------------------------
+# Clásica: for ( init ; cond ; act ) Sentencia — las tres secciones son
+# opcionales, como en Java (for(;;)). For-each: for ( Tipo idMetVar : expr )
+# Sentencia. El cuerpo es <Sentencia> (no <Bloque>), igual que <If>/<While>.
+# Cada sección admite una sola sentencia/expresión, nunca listas por coma
+# (REQ-AS-009 lo pide explícitamente). Ambas formas comparten el prefijo
+# "<Tipo> idMetVar" y se factorizan igual que en el resto del documento
+# (ver "Factorización de <For>").
+
+<For> ::= for ( <ClausulasFor> ) <Sentencia>
+
+<ClausulasFor> ::= ; <CondFor> ; <ActFor>
+<ClausulasFor> ::= <TipoPrimitivo> idMetVar <TrasIdForTipo>
+<ClausulasFor> ::= idGen idMetVar <TrasIdForTipo>
+<ClausulasFor> ::= idClase <TrasIdClaseFor>
+<ClausulasFor> ::= <Expresion> ; <CondFor> ; <ActFor>   # sólo con FIRST(<Expresion>) \ { idClase }
+
+<TrasIdForTipo> ::= : <Expresion>
+<TrasIdForTipo> ::= <InitLocalOpc> ; <CondFor> ; <ActFor>
+
+<TrasIdClaseFor> ::= <TipoGenericoOpcional> idMetVar <TrasIdForTipo>
+<TrasIdClaseFor> ::= . idMetVar <ArgsActuales> <ReferenciaResto> <ExpresionCompuestaResto> <RestoAsignacion> ; <CondFor> ; <ActFor>
+
+<CondFor> ::= <Expresion> | ϵ
+<ActFor>  ::= <Expresion> | ϵ
+
 <InitLocalOpc> ::= <OperadorAsignacion> <ExpresionCompuesta> | ϵ
 
 <Return> ::= return <ExpresionOpcional>
@@ -969,16 +1095,40 @@ una `IOException` del `SourceManager` se re-lanza envuelta en
 
 <OperadorAsignacion> ::= =
 
-<ExpresionCompuesta> ::= <ExpresionBasica> <ExpresionCompuestaResto>
+<ExpresionCompuesta> ::= <ExpresionBasica> <ExpresionCompuestaResto> <TernarioOpcional>
 
 <ExpresionCompuestaResto> ::= <OperadorBinario> <ExpresionBasica> <ExpresionCompuestaResto> | ϵ
 
 <OperadorBinario> ::= || | && | == | != | < | > | <= | >= | + | - | * | / | %
 
-<ExpresionBasica> ::= <OperadorUnario> <Operando> | <Operando>
+# REQ-AS-013 · ternario: se cuelga de <ExpresionCompuesta>, no de <ExpresionBasica>,
+# para que la condición sea la cadena binaria YA completa (menos precedencia que
+# cualquier operador binario, como en Java). <valorFalse> es <ExpresionCompuesta>,
+# que ya termina en su propio <TernarioOpcional> -- un ternario anidado ahí
+# (a ? b : c ? d : e) sale asociado a derecha sin repetir nada acá. Ver
+# "Precedencia del operador ternario" para el detalle y un bug real que apareció
+# al cablearlo en <TrasParenId>.
+<TernarioOpcional> ::= ? <ExpresionCompuesta> : <ExpresionCompuesta> | ϵ
+
+# REQ-AS-014 · postfijo ++/--: se cuelga de <ExpresionBasica>, no de
+# <ExpresionCompuesta>, para que aplique a CADA término de la cadena binaria
+# (expresionBasica() se llama una vez por término, tanto acá como desde
+# <ExpresionCompuestaResto>), no sólo al primero. <OperadorUnario> sigue siendo
+# sólo prefijo (+ | - | !); el prefijo ++/-- queda fuera de alcance.
+# <PostfijoOpcional> es recursiva para admitir encadenados ("a++--"), igual
+# que la gramática real de Java (que sólo lo rechaza en el chequeo de tipos,
+# no en el parser) — ver "Postfijo `++`/`--`" para el detalle, y el mismo bug
+# de <TrasParenId> que ya había aparecido con el ternario.
+<ExpresionBasica> ::= <OperadorUnario> <Operando> <PostfijoOpcional> | <Operando> <PostfijoOpcional>
+
+<PostfijoOpcional> ::= ++ <PostfijoOpcional> | -- <PostfijoOpcional> | ϵ
 
 <OperadorUnario> ::= + | - | !
 
+# Forma CONCEPTUAL de <Operando> (legible, no LL(1)): dice sólo que la lambda es
+# una alternativa más. NO es la que se parsea: <Referencia> y <Lambda> comparten
+# "(" y "idMetVar" en su FIRST. La definición operativa es la factorizada de más
+# abajo (tras las reglas de <Lambda>), que REEMPLAZA a esta línea.
 <Operando> ::= <Primitivo> | <Referencia> | <Lambda>
 
 <Primitivo> ::= true | false | intLiteral | charLiteral | null
@@ -998,18 +1148,52 @@ una `IOException` del `SourceManager` se re-lanza envuelta en
 <Primario> ::= <LlamadaMetodoEstatico>
 <Primario> ::= <ExpresionParentizada>
 
-<RestoNew> ::= <TipoPrimitivo> <DimensionesConTamanio>
-<RestoNew> ::= idGen <DimensionesConTamanio>
-<RestoNew> ::= idClase <TipoGenericoOpcional> <RestoNewIdClase>
+<RestoNew> ::= <TipoPrimitivo> <DimensionesNew>
+<RestoNew> ::= idGen <DimensionesNew>
+# REQ-AS-010 · notación diamante: sólo válida al instanciar (new Foo<>()), nunca
+# en una declaración de tipo. <TipoGenericoOpcionalNew> admite el interior vacío;
+# el resto de contextos sigue usando <TipoGenericoOpcional> sin cambios (exige un
+# argumento real: Foo<> x; sigue siendo error).
+<RestoNew> ::= idClase <TipoGenericoOpcionalNew> <RestoNewIdClase>
 
-<RestoNewIdClase> ::= <DimensionesConTamanio> | <ArgsActuales>
+<TipoGenericoOpcionalNew> ::= < <DiamanteOTipo> > | ϵ
+
+<DiamanteOTipo> ::= <InstanciadoOParametrico> | ϵ    # ϵ = notación diamante "<>"
+
+<RestoNewIdClase> ::= <DimensionesNew> | <ArgsActuales>
 
 <ExpresionParentizada> ::= ( <Expresion> )
 
 <LlamadaMetodoEstatico> ::= idClase . idMetVar <ArgsActuales>
 
-<DimensionesConTamanio> ::= [ <Expresion> ] <DimensionesConTamanioOpc>
+# REQ-AS-012 · inicialización de arreglos con llaves, solo al construir con
+# "new" (new int[]{1,2,3}). "]" inmediato tras el "[" ⇒ TODOS los corchetes de
+# esta creación van vacíos y viene un inicializador obligatorio (no se puede
+# mezclar tamaño e inicializador, igual que en Java); una <Expresion> ahí ⇒
+# sigue la forma de tamaño de siempre, sin cambios.
+<DimensionesNew> ::= [ <TrasCorcheteNew>
 
+<TrasCorcheteNew> ::= ] <MasCorchetesVaciosNew> <InicializadorArreglo>
+<TrasCorcheteNew> ::= <Expresion> ] <DimensionesConTamanioOpc>
+
+<MasCorchetesVaciosNew> ::= [ ] <MasCorchetesVaciosNew> | ϵ
+
+<InicializadorArreglo> ::= { <ListaValoresArregloOpcional> }
+
+<ListaValoresArregloOpcional> ::= <ListaValoresArreglo> | ϵ    # "{ }" vacío también es válido
+
+<ListaValoresArreglo> ::= <ValorArreglo> <RestoValoresArreglo>
+
+<RestoValoresArreglo> ::= , <ValorArreglo> <RestoValoresArreglo> | ϵ
+
+# <ValorArreglo> anidado habilita arreglos multidimensionales con inicializador
+# (new int[][]{{1,2},{3,4}}) gratis, sin costo de factorización adicional.
+<ValorArreglo> ::= <ExpresionCompuesta> | <InicializadorArreglo>
+
+# <DimensionesConTamanioOpc> sigue igual: la reusa <TrasCorcheteNew> para el
+# resto de corchetes con tamaño tras el primero. <DimensionesConTamanio> (el
+# no terminal que bundleaba "[ <Expresion> ] <DimensionesConTamanioOpc>") queda
+# reemplazada por <DimensionesNew> en los dos lugares donde se usaba.
 <DimensionesConTamanioOpc> ::= [ <Expresion> ] <DimensionesConTamanioOpc> | ϵ
 
 <ArgsActuales> ::= ( <ListaExpsOpcional> )
@@ -1039,7 +1223,9 @@ una `IOException` del `SourceManager` se re-lanza envuelta en
 # <Lambda> deja <Operando> con conflicto FIRST/FIRST: comparte "(" con
 # <ExpresionParentizada> y "idMetVar" con <Primario> ::= idMetVar ... . La forma
 # factorizada que vuelve LL(1) a <Operando> inlinea <Referencia>, <Primario> y
-# <ExpresionParentizada> y reparte sus arranques con estos productos nuevos:
+# <ExpresionParentizada> y reparte sus arranques con estos productos nuevos.
+# >>> Esta es la definición OPERATIVA de <Operando> (la que implementa el parser):
+#     REEMPLAZA a "<Operando> ::= <Primitivo> | <Referencia> | <Lambda>" de arriba.
 
 <Operando> ::= <Primitivo>
 <Operando> ::= this <ReferenciaResto>
@@ -1055,22 +1241,39 @@ una `IOException` del `SourceManager` se re-lanza envuelta en
 <TrasId> ::= <ArgsActualesOpcional> <ReferenciaResto>
 
 # <TrasParen>: tras "(", ")" => lambda de 0 parámetros ( () -> e );
-#              si no, se parsea <Expresion> y decide <TrasParenResto>.
+#              "idMetVar" => todavía podría ser parámetro, decide <TrasParenId>;
+#              cualquier otro arranque de <Expresion> => nunca es lambda (un
+#              parámetro siempre es "idMetVar" o "()"), se parsea <Expresion>,
+#              se exige ")" y se sigue con <ReferenciaResto> sin más chequeos.
 <TrasParen> ::= ) -> <Expresion>
-<TrasParen> ::= <Expresion> <TrasParenResto>
+<TrasParen> ::= idMetVar <TrasParenId>
+<TrasParen> ::= <Expresion> ) <ReferenciaResto>
 
-# <TrasParenResto>: tras "( <Expresion>", "," => lista de parámetros => lambda
-#                   de >=2 parámetros ( ( x , y , ... ) -> e );
-#                   ")" => cierra y decide <ColaParen>.
-<TrasParenResto> ::= ) <ColaParen>
-<TrasParenResto> ::= , <ListaIdLambda> ) -> <Expresion>
+# <TrasParenId>: tras "( idMetVar", "," => lista de parámetros => lambda
+#                de >=2 parámetros ( ( x , y , ... ) -> e );
+#                ")" => cierra con un solo idMetVar, caso ambiguo real,
+#                decide <DecidirTrasCierre>;
+#                cualquier otro token (operador, ".", "[", "(", "=", "?", "++", "--",
+#                o el "->" de una lambda anidada) => el idMetVar no era parámetro,
+#                era el comienzo de una expresión más grande: se completa reusando
+#                <TrasId>/<PostfijoOpcional>/<ExpresionCompuestaResto>/<TernarioOpcional>/
+#                <RestoAsignacion> (sin duplicar la jerarquía de precedencia) y, al
+#                cerrar con ")", ya no se vuelve a ofrecer "->". Acá aparecieron los
+#                dos bugs reales de esta lista, mismo patrón los dos: esta rama
+#                reconstruye <Expresion> a mano y al agregar una extensión nueva se
+#                olvidó sumarla acá. REQ-AS-013: sin <TernarioOpcional>,
+#                "(c > d ? c : d)" fallaba (ver "Precedencia del operador ternario").
+#                REQ-AS-014: sin <PostfijoOpcional>, "(a++)" fallaba (ver "Postfijo
+#                `++`/`--`").
+<TrasParenId> ::= , <ListaIdLambda> ) -> <Expresion>
+<TrasParenId> ::= ) <DecidirTrasCierre>
+<TrasParenId> ::= <TrasId> <PostfijoOpcional> <ExpresionCompuestaResto> <TernarioOpcional> <RestoAsignacion> ) <ReferenciaResto>
 
-# <ColaParen>: tras "( <Expresion> )", "->" => era ( x ) -> e => lambda de 1
-#              parámetro (la <Expresion> tiene que ser un idMetVar: se valida en
-#              la etapa semántica); cualquier otra cosa => expresión parentizada
-#              normal ( e ), y se sigue con <ReferenciaResto>.
-<ColaParen> ::= -> <Expresion>
-<ColaParen> ::= <ReferenciaResto>
+# <DecidirTrasCierre>: tras "( idMetVar )", "->" => era ( x ) -> e => lambda de
+#                      1 parámetro; cualquier otra cosa => expresión
+#                      parentizada normal ( x ), y se sigue con <ReferenciaResto>.
+<DecidirTrasCierre> ::= -> <Expresion>
+<DecidirTrasCierre> ::= <ReferenciaResto>
 ```
 
 ### Factorización del prefijo `(` — lambda vs. expresión parentizada
@@ -1105,29 +1308,75 @@ el `(`:
 
 1. Si el siguiente token es `)` → sólo puede ser `( ) ->` ⇒ **lambda de 0
    parámetros** (`<TrasParen> ::= ) -> <Expresion>`).
-2. Si no, se parsea una `<Expresion>` y se mira el token que sigue
-   (`<TrasParenResto>`):
+2. Si el siguiente token es `idMetVar` → **todavía podría ser un parámetro**
+   (único requisito sintáctico de un parámetro: ser un `idMetVar` suelto o una
+   lista de ellos separados por coma), así que hay que seguir mirando
+   (`<TrasParenId>`):
    - `,` → era una lista de parámetros ⇒ **lambda**; se siguen leyendo
      `, idMetVar` hasta el `)` y después se exige `->`.
-   - `)` → se consume y se mira **un** token más (`<ColaParen>`):
+   - `)` → se consume y se mira **un** token más (`<DecidirTrasCierre>`):
      - `->` → era `( x ) -> ...` ⇒ **lambda de 1 parámetro**.
-     - cualquier otra cosa → era `( <Expresion> )` ⇒ **expresión parentizada**;
-       se sigue con `<ReferenciaResto>` (`.m()`, `[i]`, etc.).
+     - cualquier otra cosa → era `( x )` ⇒ **expresión parentizada** (la
+       variable `x` sola); se sigue con `<ReferenciaResto>` (`.m()`, `[i]`,
+       etc.).
+   - cualquier otro token (operador, `.`, `[`, `(`, `=`, o incluso un `->` de
+     una lambda anidada, vía `<TrasId>`) → el `idMetVar` **no** era un
+     parámetro, era apenas el comienzo de una expresión más grande. Ya se sabe
+     con certeza que esto no puede ser una lista de parámetros (ningún
+     operador ni continuación de referencia es válido ahí), así que se termina
+     de parsear como expresión normal (reusando `<TrasId>`,
+     `<ExpresionCompuestaResto>` y `<RestoAsignacion>` para no duplicar la
+     jerarquía de precedencia) y, al llegar al `)` de cierre, **no se vuelve a
+     ofrecer `->`**: sólo puede ser expresión parentizada.
+3. Si el siguiente token es cualquier otro arranque válido de `<Expresion>`
+   (literal, `this`, `stringLiteral`, `new`, `idClase`, `(` anidado, operador
+   unario) → **nunca puede ser lambda** (un parámetro siempre es `idMetVar` o
+   la lista vacía `()`), así que se parsea `<Expresion>` normal, se exige `)` y
+   se sigue con `<ReferenciaResto>` — sin ningún chequeo de `->` posterior.
 
-Con eso cada no terminal nuevo (`<TrasParen>`, `<TrasParenResto>`, `<ColaParen>`)
-decide con **un** token de lookahead y sus alternativas tienen FIRST disjuntos
-(`)` vs. `FIRST(<Expresion>)`; `,` vs. `)`; `->` vs. `FOLLOW`), o sea que la
-gramática vuelve a ser LL(1).
+Con eso cada no terminal nuevo (`<TrasParen>`, `<TrasParenId>`,
+`<DecidirTrasCierre>`) decide con **un** token de lookahead y sus alternativas
+tienen FIRST disjuntos (`)` / `idMetVar` / resto de `FIRST(<Expresion>)` en
+`<TrasParen>`; `,` / `)` / resto en `<TrasParenId>`; `->` / resto en
+`<DecidirTrasCierre>`), o sea que la gramática es LL(1).
 
-**El costo.** El camino `( x ) -> e` parsea `x` como una `<Expresion>` completa
-y recién al ver `->` la reinterpreta como parámetro. La gramática factorizada
-por lo tanto *acepta sintácticamente* cosas como `(a + b) -> e`, que no son
-lambdas válidas. Eso se rechaza en la **etapa semántica** (comprobar que lo que
-está en la posición de parámetro es un único `idMetVar`). Es el precio habitual
-de factorizar este caso; la alternativa sería un *lookahead* acotado en el
-método `operando()` (escanear el paréntesis balanceado y espiar si después
-viene `->`), al estilo de las resoluciones "por convención en el método" del
-Paso 4 — pero eso deja de ser LL(1) estricto en ese punto.
+**El costo.** A diferencia de una primera factorización más simple (parsear
+siempre una `<Expresion>` genérica tras el `(` y decidir recién con el token
+posterior al `)` de cierre), acá el costo no es sobre-aceptación sino
+duplicación potencial: la rama de `<TrasParenId>` que descarta la lista de
+parámetros no puede llamar de nuevo a `<Expresion>` desde cero (perdería el
+`idMetVar` ya consumido), así que reconstruye el resto de la jerarquía de
+precedencia llamando explícitamente a `<TrasId>` (cierra el `<Operando>` que
+arrancó en `idMetVar`), `<ExpresionCompuestaResto>` (sigue con más operadores
+binarios) y `<RestoAsignacion>` (admite un `=` final, para no perder casos como
+`(x = y)`). Son los mismos tres métodos que ya usa el resto del parser para
+construir `<Expresion>`, así que no hay lógica nueva de precedencia — sólo un
+punto de entrada distinto a la cadena habitual.
+
+**Pendiente — revisión futura (resuelto).** El rechazo de `(a + b) -> e` (y
+`(a = b) -> e`, `(f(x)) -> e`, `(5) -> e`, …) estaba diferido a una etapa
+semántica que todavía no existe en el proyecto. Se evaluaron tres tratamientos:
+
+1. **Diferir a semántico.** La gramática factorizada acepta cualquier
+   `<Expresion>` en posición de parámetro; semántico comprueba que sea un
+   único `idMetVar`. Cero cambios de gramática, pero requiere una etapa que no
+   existe.
+2. **Lookback en el método.** En `trasParen()`, cuando tras `( <Expresion> )`
+   viene `->`, exigir que la `<Expresion>` ya parseada sea un `idMetVar`
+   suelto; si no, error sintáctico. Sin producciones nuevas, pero deja de ser
+   LL(1) estricto en ese punto (decide mirando la estructura ya parseada, no
+   sólo el token actual).
+3. **Split de `<TrasParen>` por `idMetVar`.** Bifurcar según si el primer token
+   tras `(` es `idMetVar` (posible parámetro) o no, con un `<TrasParenId>` que
+   ramifica en `,` / `)` / resto-de-expresión. Rechaza directamente en el
+   parseo, sigue siendo LL(1) con un token de lookahead en cada punto, y sólo
+   suma dos no terminales (`<TrasParenId>`, `<DecidirTrasCierre>`) reusando el
+   resto de la jerarquía de `<Expresion>` ya existente.
+
+**Decisión: se adopta la opción 3** (arriba, ya integrada en "La
+factorización" y en `<TrasParenId>`/`<DecidirTrasCierre>` de la gramática
+factorizada más abajo). Queda implementada en `trasParen()` / `trasParenId()`
+/ `decidirTrasCierre()` de `AnalizadorSintacticoImpl`.
 
 El prefijo `idMetVar` (lambda `x -> e` sin paréntesis vs. acceso a variable) es
 el caso fácil: alcanza **un** token de lookahead — si tras el `idMetVar` viene
@@ -1184,6 +1433,278 @@ posición de parámetro en la lambda).
 
 **Sin token nuevo.** No hace falta nada en el léxico: `<TipoPrimitivo>`,
 `idGen`, `idClase`, `,`, `=` y `;` ya existen.
+
+### Factorización de `<Miembro>` — visibilidad opcional vs. prefijo `idClase` del constructor
+
+**El conflicto.** Al sumar la visibilidad (`REQ-AS-007`),
+`<Visibilidad> ::= public | private | ϵ` se antepone a todo `<Miembro>`. Por sí
+sola no rompe nada: es anulable, con `FIRST = { public, private }` disjunto de
+`FOLLOW(<Visibilidad>) = FIRST(<CuerpoMiembro>) = { static, void, boolean, char,
+int, idGen, idClase }`. El problema es indirecto. En la versión del Paso 2.2,
+`public` era **el** token que identificaba al constructor
+(`<Miembro> ::= public idClase <ArgsFormales> <Bloque>`). Al pasar `public` a ser
+una visibilidad más, el constructor queda como `idClase <ArgsFormales> <Bloque>`
+y su prefijo `idClase` choca con el de un atributo o método cuyo tipo es una
+clase (`<Tipo>` puede empezar con `idClase` vía `<TipoReferencia>`):
+
+- `Foo(...) { }`      → constructor
+- `Foo bar(...) { }`  → método que devuelve `Foo`
+- `Foo bar ;`         → atributo de tipo `Foo`
+- `Foo<X> bar ;`      → atributo, tipo genérico
+
+**La factorización.** Profunda sobre `idClase`, misma técnica que
+`<RestoNewIdClase>` (Paso 2.4) y `<SentIdClase>` ("Factorización de
+`<Sentencia>`"): se consume `idClase` y **un** token más desambigua, sin
+lookahead extra.
+
+```
+<Miembro> ::= <Visibilidad> <CuerpoMiembro>
+
+<Visibilidad> ::= public | private | ϵ
+
+<CuerpoMiembro> ::= static <TipoMetodo> idMetVar <ArgsFormales> <Bloque>
+               |  void idMetVar <ArgsFormales> <Bloque>
+               |  <TipoPrimitivo> <DimensionesOpcionales> idMetVar <RestoMiembro>
+               |  idGen <DimensionesOpcionales> idMetVar <RestoMiembro>
+               |  idClase <TrasIdClaseMiembro>
+
+<TrasIdClaseMiembro> ::= <ArgsFormales> <Bloque>                                                # "(" ⇒ constructor
+                     |  <TipoGenericoOpcional> <DimensionesOpcionales> idMetVar <RestoMiembro>   # "<" / "[" / idMetVar ⇒ tipo clase
+
+<RestoMiembro> ::= ; | <ArgsFormales> <Bloque> | <OperadorAsignacion> <ExpresionCompuesta> ;
+                                          # ";" atributo sin inicializar, "(" método,
+                                          # "=" atributo con inicializador (REQ-AS-011)
+```
+
+- Hay que **desplegar `<Tipo>`** (en el Paso 2.2 estaba sin desplegar, en
+  `<Miembro> ::= <Tipo> idMetVar <RestoMiembro>`): `<TipoPrimitivo>` e `idGen` no
+  chocan con constructor (un constructor se llama como la clase, siempre
+  `idClase`), así que van directos; sólo la rama `idClase` necesita el nivel
+  extra.
+- `<TrasIdClaseMiembro>`: FIRST rama-1 = `{ ( }` (por `<ArgsFormales>`); FIRST
+  rama-2 = `{ <, [, idMetVar }` (por `<TipoGenericoOpcional>` y
+  `<DimensionesOpcionales>` anulables hasta `idMetVar`). Disjuntos.
+- `<CuerpoMiembro>`: `{ static }` / `{ void }` / `{ boolean, char, int }` /
+  `{ idGen }` / `{ idClase }`. Disjuntos.
+- `<Visibilidad>` anulable: `FIRST(no vacío) = { public, private }` y
+  `FOLLOW(<Visibilidad>) = FIRST(<CuerpoMiembro>) = { static, void, boolean,
+  char, int, idGen, idClase }`; la intersección es vacía, así que el `ϵ`
+  (visibilidad implícita) no genera conflicto.
+- Qué visibilidad implica omitir `<Visibilidad>` y si `private` es legal en cada
+  contexto (p. ej. no en interfaz) es **semántico**; el sintáctico sólo valida
+  la forma.
+
+**Token nuevo en el léxico.** `public` ya es palabra clave (`PR_PUBLIC`);
+`private` no. Hay que agregar `PR_PRIVATE` a `TokenType` y a
+`TablaPalabrasClave` (mismo tipo de cambio que `ARROW` para la lambda).
+
+**Interfaces.** `<MetodoInterfaz> ::= <TipoMetodo> idMetVar <ArgsFormales> ;` no
+cambia: los métodos de interfaz quedan implícitamente `public`, sin sintaxis de
+visibilidad.
+
+### Factorización de `<For>` — clásico vs. for-each, y prefijo `idClase`
+
+**El conflicto.** `REQ-AS-009` pide dos formas de `for`:
+
+- Clásica: `for ( <Tipo> idMetVar [ = expr ] ; cond ; act ) Sentencia`
+- For-each: `for ( <Tipo> idMetVar : expr ) Sentencia`
+
+Ambas arrancan con el mismo prefijo `<Tipo> idMetVar` y sólo se distinguen por
+el token que viene *después* del nombre de la variable (`:` vs. `=`/`;`) — un
+conflicto FIRST/FIRST idéntico en forma a los que ya resolvió este documento
+(`<TrasId>` de la lambda, `<SentIdClase>`, `<TrasIdClaseMiembro>`). Además, la
+inicialización del `for` clásico también puede ser una **expresión** en vez de
+una declaración (`for (i = 0; ...)`, `for (Fabrica.reset(); ...)`), lo que
+reintroduce el mismo choque de `idClase` (¿tipo o llamada estática?) que ya
+aparece en `<Sentencia>`/`<SentIdClase>` y en `<Miembro>`/`<TrasIdClaseMiembro>`.
+
+**La factorización.** Se consume el prefijo común y se decide con **un** token
+más en cada punto, igual que en los casos anteriores:
+
+```
+<For> ::= for ( <ClausulasFor> ) <Sentencia>
+
+<ClausulasFor> ::= ; <CondFor> ; <ActFor>                            # sin inicialización
+                 |  <TipoPrimitivo> idMetVar <TrasIdForTipo>
+                 |  idGen idMetVar <TrasIdForTipo>
+                 |  idClase <TrasIdClaseFor>
+                 |  <Expresion> ; <CondFor> ; <ActFor>               # init. es una expresión
+
+<TrasIdForTipo> ::= : <Expresion>                                    # for-each
+                  |  <InitLocalOpc> ; <CondFor> ; <ActFor>           # for clásico con declaración
+
+<TrasIdClaseFor> ::= <TipoGenericoOpcional> idMetVar <TrasIdForTipo>                                                    # era tipo clase
+                   |  . idMetVar <ArgsActuales> <ReferenciaResto> <ExpresionCompuestaResto> <RestoAsignacion> ; <CondFor> ; <ActFor>  # era llamada estática
+
+<CondFor> ::= <Expresion> | ϵ
+<ActFor>  ::= <Expresion> | ϵ
+```
+
+- `<ClausulasFor>`: FIRST disjuntos — `{ ; }` / `{ boolean, char, int }` /
+  `{ idGen }` / `{ idClase }` / resto de `FIRST(<Expresion>)` (sin `idClase`,
+  que ya lo toma la rama anterior — mismo criterio que `<Sentencia>` con
+  `<SentIdClase>`).
+- `<TrasIdForTipo>`: `{ : }` vs. `{ =, ; }` (por `<InitLocalOpc>` anulable).
+  Disjuntos.
+- `<TrasIdClaseFor>`: `{ . }` vs. `{ <, idMetVar }` (por `<TipoGenericoOpcional>`
+  anulable). Disjuntos — misma forma que `<TrasIdClaseMiembro>`.
+- `<CondFor>`/`<ActFor>` anulables: no generan conflicto porque lo que sigue en
+  cada caso (`;` o `)`) no está en `FIRST(<Expresion>)`.
+
+**Decisiones de diseño** (no impuestas por el requerimiento, confirmadas antes
+de implementar):
+- Las tres secciones son **opcionales**, igual que en Java (`for (;;)` es
+  válido) — de ahí que `<CondFor>`/`<ActFor>` acepten `ϵ` y que `<ClausulasFor>`
+  tenga una rama para "sin inicialización".
+- El **cuerpo es `<Sentencia>`**, no `<Bloque>`: admite tanto una sentencia
+  simple sin llaves como un bloque, igual que `<If>`/`<While>` — no hay motivo
+  para que `for` sea más estricto que esos dos.
+- El **for-each no admite `var`** (sólo tipo explícito) por ahora; se puede
+  sumar después como una alternativa más de `<ClausulasFor>`
+  (`var idMetVar : <Expresion>`) sin romper nada, porque `var` es palabra clave
+  propia y no comparte prefijo con nada de lo de arriba.
+- **Alcance**: igual que `<RestoDeclLocal>` hoy, no se admiten arreglos en la
+  variable declarada en el `for` (`<DimensionesOpcionales>` queda afuera),
+  consistente con que `REQ-AS-006` tampoco los cubre todavía.
+- La `<Actualizacion>` de Java en rigor sólo admite expresiones-sentencia
+  (asignación, `++`/`--`, llamada), no cualquier `<Expresion>`; se optó por
+  `<Expresion>` sin restricción porque el proyecto ya acepta esa misma
+  amplitud en `<Sentencia> ::= <Expresion> ;` (p. ej. `(1+2)*3;` es una
+  sentencia válida hoy) — restringir sólo acá sería inconsistente, y no es un
+  chequeo sintáctico sino de estilo/semántica.
+
+**Reuso.** Nada nuevo salvo la factorización en sí: `<Expresion>`,
+`<InitLocalOpc>`, `<TipoGenericoOpcional>`, y la misma reconstrucción de cola
+de `<SentIdClase>` (`<ArgsActuales> <ReferenciaResto> <ExpresionCompuestaResto>
+<RestoAsignacion>`) para la rama de llamada estática como inicialización.
+
+**Token nuevo en el léxico.** `for` no era palabra clave. Se agregó `PR_FOR` a
+`TokenType` y a `TablaPalabrasClave` (mismo tipo de cambio que `PR_PRIVATE`
+para la visibilidad). El `:` de for-each ya existía como `DOS_PUNTOS` — no hizo
+falta tocar el autómata del léxico.
+
+### Precedencia del operador ternario (REQ-AS-013)
+
+**La decisión de diseño.** Una primera propuesta colgaba el ternario de
+`<ExpresionBasica>` (al mismo nivel que `<OperadorUnario> <Operando>`), con
+`<Ternario> ::= ? <valorTrue> : <valorFalse>`. Eso le da al `?:` **más**
+precedencia que cualquier operador binario — lo opuesto a Java, donde el
+ternario tiene de las precedencias más bajas (sólo por encima de la
+asignación). Ejemplo donde se nota: `1 + flag ? a : b` debería leerse
+`(1 + flag) ? a : b`; colgado de `<ExpresionBasica>`, el `?:` se ata sólo al
+último operando de la cadena (`flag`) y da `1 + (flag ? a : b)`.
+
+La corrección fue mover el enganche a `<ExpresionCompuesta>` — el nivel que ya
+encadena toda la cadena de operadores binarios (`<ExpresionCompuestaResto>`) —
+como sufijo opcional:
+
+```
+<ExpresionCompuesta> ::= <ExpresionBasica> <ExpresionCompuestaResto> <TernarioOpcional>
+<TernarioOpcional>   ::= ? <ExpresionCompuesta> : <ExpresionCompuesta> | ϵ
+```
+
+Para cuando `<TernarioOpcional>` mira el `?`, la condición (`<ExpresionBasica>
+<ExpresionCompuestaResto>`) ya está completamente consumida, así que el
+ternario queda por debajo de todos los binarios, igual que en Java:
+`1 + flag ? a : b` → `(1+flag) ? a : b`; `flag ? 1 : 2 + 3` → `flag ? 1 : (2+3)`.
+
+**Asociatividad a derecha sin recursión explícita.** El `<valorFalse>` es
+`<ExpresionCompuesta>`, que ya termina en su propio `<TernarioOpcional>` — no
+hace falta escribir `<TernarioOpcional>` de nuevo al final de la producción
+para soportar `a ? b : c ? d : e`. Al llegar al `c`, la llamada recursiva a
+`<ExpresionCompuesta>` (la del `<valorFalse>` externo) prueba su propio
+`<TernarioOpcional>`, ve el `?` que sigue y arma `c ? d : e` como una unidad,
+dando `a ? b : (c ? d : e)` (asociativo a derecha, como Java). Mismo mecanismo
+para un ternario anidado en el `<valorTrue>` (`a ? b?c:d : e`): cada `?` se
+resuelve con su `:` más cercano por el propio anidado de llamadas, sin
+ambigüedad LL(1) (basta un token de lookahead en cada punto de decisión).
+
+**Bug real encontrado al integrarlo.** `<TrasParenId>` (factorización del
+prefijo `(` de "Factorización del prefijo `(`") tiene una rama que reconstruye
+`<Expresion>` a mano para resolver el conflicto lambda-vs-paréntesis, sin poder
+reusar `expresionCompuesta()` directamente:
+`<TrasId> <ExpresionCompuestaResto> <RestoAsignacion> ) <ReferenciaResto>`. Al
+sumar el ternario se pisó agregarle `<TernarioOpcional>` ahí, así que
+`(c > d ? c : d)` fallaba con `se esperaba "parC" y se encontró interrogacion`
+— el paréntesis esperaba cerrar antes de llegar al `?`. Lo destapó
+`sintCorrecto18.java` (ternario anidado con un paréntesis explícito). Quedó
+corregido con `<TernarioOpcional>` sumado ahí (forma final, con el postfijo de
+`REQ-AS-014` incluido, en "Postfijo `++`/`--`" más abajo) — mismo patrón que en
+`<ExpresionCompuesta>`, ternario antes que asignación.
+
+**Token nuevo en el léxico.** `?` no existía. Se agregó `TokenType.INTERROGACION`
+y se reconoce como símbolo simple en `estadoInicial()` (no combina con ningún
+otro carácter, a diferencia de `<`/`>`/`=`/`!`/`&`/`|`/`+`/`-`/`/`).
+
+### Postfijo `++`/`--` (REQ-AS-014)
+
+**Dónde engancha.** Mismo tipo de decisión que el ternario, pero en la
+dirección opuesta: acá el enganche va en `<ExpresionBasica>` (no en
+`<ExpresionCompuesta>`), porque el postfijo es una propiedad *por operando*,
+no de la expresión completa — igual que `<OperadorUnario>`, que ya vive en ese
+mismo nivel:
+
+```
+<ExpresionBasica>  ::= <OperadorUnario> <Operando> <PostfijoOpcional>
+                    |  <Operando> <PostfijoOpcional>
+<PostfijoOpcional> ::= ++ <PostfijoOpcional> | -- <PostfijoOpcional> | ϵ
+```
+
+Una primera propuesta lo colgaba una sola vez de `<ExpresionCompuesta>`
+(`<ExpresionBasica> <PostfijoOpcional> <ExpresionCompuestaResto>`), pensando
+en evitar "repetir" el chequeo. El problema: `<ExpresionCompuestaResto>`
+vuelve a llamar a `<ExpresionBasica>` para cada término siguiente de la cadena
+binaria, y esa llamada recursiva no pasaba por ese `<PostfijoOpcional>` — sólo
+el primer término de la cadena quedaba cubierto. `a + x++;` fallaba: se
+parsea `a`, no hay postfijo ahí; `<ExpresionCompuestaResto>` consume `+ x`
+como segundo término sin volver a chequear postfijo; el `++` queda colgando y
+truena contra el `;` esperado.
+
+La corrección real no es "menos repetición" sino "en qué no terminal vive la
+regla": `<ExpresionBasica>` ya es la unidad de "un operando con signo
+opcional" que se llama una vez por término (acá mismo y desde
+`<ExpresionCompuestaResto>`), así que ponerle el postfijo ahí lo cubre en
+todos los términos sin escribir el chequeo dos veces — al revés de lo que
+parecía, colgarlo de `<ExpresionCompuesta>` es lo que hubiera necesitado
+duplicar `<PostfijoOpcional>` (una vez ahí y otra dentro de
+`<ExpresionCompuestaResto>`) para cubrir todos los términos correctamente.
+
+**Bug real encontrado al integrarlo — mismo punto ciego que el ternario.**
+`<TrasParenId>` reconstruye `<Operando>`/`<Expresion>` a mano para el
+conflicto lambda-vs-paréntesis (`<TrasId> <ExpresionCompuestaResto>
+<TernarioOpcional> <RestoAsignacion> ) <ReferenciaResto>`), sin pasar por
+`expresionBasica()`. Se le había olvidado sumar `<PostfijoOpcional>` ahí
+también, así que `(a++)` fallaba (`se esperaba "parC" y se encontró op++`).
+Quedó corregido como `<TrasId> <PostfijoOpcional> <ExpresionCompuestaResto>
+<TernarioOpcional> <RestoAsignacion> ) <ReferenciaResto>` — postfijo pegado a
+`<TrasId>` (que es la cola de `<Operando> ::= idMetVar <TrasId>`), en el mismo
+lugar relativo que en `<ExpresionBasica>`.
+
+**Fuera de alcance.** `<OperadorUnario>` sigue siendo sólo `+ | - | !`: el
+prefijo `++x`/`--x` no forma parte de `REQ-AS-014` (que pide explícitamente
+"postfijos") y sigue siendo error sintáctico.
+
+**Postfijos encadenados (`a++--`) sí se aceptan — a propósito, para calzar con
+Java real.** Una primera versión de `<PostfijoOpcional>` no era recursiva (un
+solo `++`/`--` por operando) y rechazaba `a++--` como error sintáctico,
+justificado como "el resultado de `a++` no es una variable, no puede llevar
+otro postfijo". Se verificó contra `javac` real y esa justificación era
+incorrecta: la gramática de Java **sí** es recursiva ahí
+(`PostIncrementExpression ::= PostfixExpression ++`, y `PostfixExpression`
+puede ser a su vez otro `PostIncrementExpression`/`PostDecrementExpression`),
+así que `javac` acepta `a++--` al parsear y recién lo rechaza en el chequeo de
+**tipos** (`error: unexpected type — required: variable, found: value`), no
+en el parser — la distinción "esto es una variable asignable, esto es sólo un
+valor" es semántica, no sintáctica. Cortarlo en el sintáctico hubiera sido
+una restricción propia sin base en Java ni en el resto del proyecto (que ya
+difiere esa misma distinción a semántica en otros lados: `1++`, `1 = 2;`), así
+que `<PostfijoOpcional>` quedó recursiva y `a++--` es un caso positivo
+(`sintCorrecto20.java`).
+
+**Token nuevo en el léxico.** Ninguno: `OP_INCREMENTO` (`++`) y
+`OP_DECREMENTO` (`--`) ya existían en `TokenType` y ya los emitía
+`AnalizadorLexicoImpl` (`estadoMas()`/`estadoMenos()`), quedaron sin usar en
+el sintáctico hasta ahora.
 
 ## Estrategia de análisis: descenso recursivo predictivo (LL(1))
 
@@ -1294,9 +1815,11 @@ si se puede evitar, para poder reportar varios errores en una sola corrida.
 - Un método por cada no terminal de la sección "Gramática LL(1) resultante" —
   **ya escrito** en `AnalizadorSintacticoImpl` (uno por no terminal, con el
   nombre pelado del no terminal en minúscula; ver "Estado actual del código"),
-  más los de la lambda y la variable local clásica de "Gramática Expandida
-  (Logros)". Faltan los del resto del Paso 5 (`REQ-AS-007..014`), que se suman a
-  medida que esas extensiones se reflejen en la gramática.
+  más los de la lambda, la variable local clásica, la visibilidad, el `for`,
+  los genéricos anidados/diamante, los inicializadores de atributo, los
+  inicializadores de arreglo, el ternario (`ternarioOpcional()`) y el
+  postfijo (`postfijoOpcional()`) de "Gramática Expandida (Logros)". **El
+  Paso 5 está completo**: no queda ningún método pendiente de esta lista.
 
 ## Estado actual del código (pendientes detectados)
 
@@ -1332,14 +1855,15 @@ si se puede evitar, para poder reportar varios errores en una sola corrida.
     en "Estrategia de análisis").
   - **Lambda (`REQ-AS-005`) ya implementada** según "Gramática Expandida
     (Logros)": se sumó el token `ARROW` (`->`) y `operando()` quedó reescrito
-    con la factorización `<TrasId>` / `<TrasParen>` / `<TrasParenResto>` /
-    `<ColaParen>` / `<ListaIdLambda>` / `<RestoListaIdLambda>`. Eso **inlinea y
-    elimina** los métodos `referencia()`, `primario()` y `expresionParentizada()`
-    (y con ellos la constante `PRIMEROS_PRIMARIO`), porque el reparto de los
-    prefijos `(` e `idMetVar` entre lambda y referencia se hace dentro de
-    `operando()`. El parser sigue decidiendo sólo con FIRST + un token; `ARROW`
-    no está en ningún FIRST. Se acepta sintácticamente `( a + b ) -> e` (costo de
-    la factorización, se filtra en semántica).
+    con la factorización `<TrasId>` / `<TrasParen>` / `<TrasParenId>` /
+    `<DecidirTrasCierre>` / `<ListaIdLambda>` / `<RestoListaIdLambda>`. Eso
+    **inlinea y elimina** los métodos `referencia()`, `primario()` y
+    `expresionParentizada()` (y con ellos la constante `PRIMEROS_PRIMARIO`),
+    porque el reparto de los prefijos `(` e `idMetVar` entre lambda y
+    referencia se hace dentro de `operando()`. El parser sigue decidiendo sólo
+    con FIRST + un token; `ARROW` no está en ningún FIRST. La bifurcación por
+    `idMetVar` en `<TrasParenId>` **rechaza en el propio sintáctico**
+    `( a + b ) -> e` y casos similares (no hace falta filtrarlo en semántica).
   - **Variable local clásica (`REQ-AS-006`) ya implementada**: `sentencia()`
     suma ramas para `<TipoPrimitivo>` / `idGen` / `idClase` (esta última con
     `sentIdClase()` factorizando declaración vs. llamada estática por el token
@@ -1347,9 +1871,86 @@ si se puede evitar, para poder reportar varios errores en una sola corrida.
     `initLocalOpc()`. `PRIMEROS_SENTENCIA` suma `boolean` / `char` / `int` /
     `idGen`. La rama `<Expresion> ;` se prueba después de la de `idClase`. La
     forma con `var` (`varLocal()`) queda intacta.
-  - No cubren todavía las extensiones `REQ-AS-007..014` (resto del Paso 5) ni la
-    recuperación en modo pánico (`REQ-AS-008`): hoy `error()` lanza
-    `ErrorSintactico` y corta en el primer error.
+  - **Visibilidad de miembros (`REQ-AS-007`) ya implementada**: se sumó el
+    token `PR_PRIVATE` (palabra clave `private`) a `TokenType` y
+    `TablaPalabrasClave`, y `<Miembro>` quedó reescrito como
+    `visibilidad()` + `cuerpoMiembro()`. Como `public` deja de marcar al
+    constructor, su prefijo `idClase` se factoriza en profundidad en
+    `trasIdClaseMiembro()` (misma técnica que `sentIdClase()`): `(` ⇒
+    constructor; cualquier otra cosa ⇒ atributo/método de tipo clase.
+    `PRIMEROS_MIEMBRO` suma `PR_PRIVATE`.
+  - **`for` (`REQ-AS-009`) ya implementado**, en sus dos formas (clásica con
+    `;` y for-each con `:`): se sumó el token `PR_FOR` (el `:` ya existía como
+    `DOS_PUNTOS`) y `sentenciaFor()` llama a `clausulasFor()`, que factoriza el
+    prefijo compartido `<Tipo> idMetVar` entre ambas formas y decide con un
+    token más (`:` vs. `=`/`;`) en `trasIdForTipo()`. El choque de `idClase`
+    (tipo vs. llamada estática como inicialización) se resuelve en
+    `trasIdClaseFor()`, misma técnica que `sentIdClase()`/`trasIdClaseMiembro()`.
+    Las tres secciones son opcionales (`for (;;)`); el cuerpo es `<Sentencia>`,
+    no `<Bloque>`; el for-each no admite `var`. `PRIMEROS_SENTENCIA` suma
+    `PR_FOR`.
+  - **Genéricos anidados y notación diamante (`REQ-AS-010`) ya implementados**:
+    `instanciadoOParametrico()` recursa en su rama `idClase` (llama de nuevo a
+    `tipoGenericoOpcional()`), lo que habilita anidado (`Caja<Lista<Item>>`) en
+    todo lo que ya usaba `<TipoGenericoOpcional>`, sin tocar esos no
+    terminales. El diamante (`new Foo<>()`) es aparte: `restoNew()` pasa a
+    llamar a `tipoGenericoOpcionalNew()` (nueva, admite interior vacío vía
+    `diamanteOTipo()`) en vez de `tipoGenericoOpcional()`; el resto de
+    contextos de tipo no cambia, así que `Foo<> x;` sigue siendo error
+    sintáctico. El cierre `>>` no necesitó ningún cambio en el léxico: ya
+    tokeniza como dos `OP_MAYOR` sueltos (`estadoMayor()` sólo combina con
+    `=`), cada uno consumido por un nivel distinto de anidamiento.
+  - **Inicializadores de atributo (`REQ-AS-011`) ya implementados**:
+    `restoMiembro()` suma una tercera rama `<OperadorAsignacion>
+    <ExpresionCompuesta> ;` (p. ej. `int x = 5;`), con FIRST `{ = }` disjunto
+    de `{ ; }` y `{ ( }` — sin conflicto LL(1) que factorizar, la primera
+    extensión de esta lista sin ese trabajo. Ya cubre atributos de arreglo con
+    inicializador `new` (`int[] arr = new int[5];`). `static` sigue sin
+    producir atributos (fuera de alcance de este requerimiento).
+  - **Inicializadores de arreglo entre llaves (`REQ-AS-012`) ya implementados**,
+    sólo al construir con `new`: `<DimensionesNew>` reemplaza a la vieja
+    `<DimensionesConTamanio>` en `restoNew()`/`restoNewIdClase()`. Tras el
+    primer `[`, `trasCorcheteNew()` decide con un token más: `]` inmediato ⇒
+    todos los corchetes van vacíos (`masCorchetesVaciosNew()`) y sigue un
+    `{ ... }` obligatorio (`inicializadorArreglo()`); una expresión ⇒ la forma
+    de tamaño de siempre, reusando `dimensionesConTamanioOpc()` sin cambios.
+    No se pueden mezclar tamaño e inicializador, igual que en Java.
+    `<ValorArreglo>` admite anidar otro inicializador, así que
+    `new int[][]{{1,2},{3,4}}` sale sin costo adicional. Sin tokens nuevos
+    (`LLAVE_A`/`LLAVE_C` ya existían para `<Bloque>`).
+  - **Operador ternario (`REQ-AS-013`) ya implementado**: `expresionCompuesta()`
+    suma `ternarioOpcional()` al final (`? <ExpresionCompuesta> :
+    <ExpresionCompuesta>` u ϵ), enganchado en `<ExpresionCompuesta>` y no en
+    `<ExpresionBasica>` para quedar con menos precedencia que cualquier
+    operador binario, y la asociatividad a derecha sale gratis porque el
+    `<valorFalse>` (`<ExpresionCompuesta>`) ya prueba su propio
+    `ternarioOpcional()` — ver "Precedencia del operador ternario". Apareció
+    un bug real al integrarlo: `trasParenId()` reconstruye `<Expresion>` a
+    mano para el conflicto lambda-vs-paréntesis y se había olvidado de sumar
+    `ternarioOpcional()` ahí, así que `(c > d ? c : d)` fallaba; quedó
+    corregido. Token nuevo: `TokenType.INTERROGACION` (`?`), símbolo simple
+    sin combinaciones. Cubierto por `sintCorrecto17/18.java` (precedencia y
+    anidado/asociatividad) y `sintError41/42.java` (falta `:` / falta
+    `<valorFalse>`).
+  - **Postfijo `++`/`--` (`REQ-AS-014`) ya implementado**: `expresionBasica()`
+    suma `postfijoOpcional()` al final de sus dos ramas (después de
+    `operando()`), enganchado en `<ExpresionBasica>` y no en
+    `<ExpresionCompuesta>` para que aplique a cada término de la cadena
+    binaria y no sólo al primero — ver "Postfijo `++`/`--`". Mismo bug real
+    que el ternario, en el mismo lugar: `trasParenId()` reconstruye
+    `<Operando>`/`<Expresion>` a mano y se había olvidado de sumar
+    `postfijoOpcional()` tras `trasId()`, así que `(a++)` fallaba; quedó
+    corregido. `<PostfijoOpcional>` es recursiva (admite `a++--` como caso
+    positivo, igual que Java real — ver "Postfijo `++`/`--`" para el bug de
+    razonamiento que hubo en el camino). Sin tokens nuevos:
+    `OP_INCREMENTO`/`OP_DECREMENTO` ya existían en `TokenType` y ya los emitía
+    el léxico, sin usar hasta ahora en el sintáctico. Cubierto por
+    `sintCorrecto19/20.java` (postfijo en cadena binaria, paréntesis,
+    referencia encadenada, ternario, `for`, y encadenado `a++--`) y
+    `sintError43.java` (prefijo `++` fuera de alcance).
+  - **El Paso 5 queda completo**: `REQ-AS-005..014` implementados. Sigue
+    pendiente la recuperación en modo pánico (`REQ-AS-008`): hoy `error()`
+    lanza `ErrorSintactico` y corta en el primer error.
 - `ErrorSintactico` existe como `RuntimeException` con línea, lexema del token
   ofensivo, encontrado y esperado. Falta la versión "clase de datos" con línea
   fuente y el mecanismo de reporte tipo listener (ver "Piezas que va a
@@ -1364,18 +1965,68 @@ si se puede evitar, para poder reportar varios errores en una sola corrida.
   `AnalizadorHandler` y un listener sintáctico quedan pendientes.
 - Los testers `TesterSintacticoDeCasosSinErrores` / `TesterSintacticoDeCasosConErrores`
   (en `src/test/java`, recursos en `resources/sintactico/{sinErrores,conErrores}/`)
-  corren contra `ModuloPrincipalET2`. 25 casos (8 sin error + 17 con error),
-  `OK (25 tests)`. Cobertura propia por extensión:
-  - Lambda: `sintCorrecto05..07` (las cinco formas, contextos variados,
-    anidadas/currificación) y `sintError05..12` (cuerpo entre llaves / varias
-    sentencias, parámetro con tipo, sin cuerpo, coma colgante, sin flecha, sin
-    `)` de cierre, sólo la flecha) — con 0, 1, pocos y muchos parámetros.
+  corren contra `ModuloPrincipalET2`. 63 casos (20 sin error + 43 con error),
+  `OK (63 tests)`. Cobertura propia por extensión:
+  - Lambda: `sintCorrecto05..07` y `09` (las cinco formas, contextos variados,
+    anidadas/currificación, y currying con parámetro entre paréntesis en cada
+    nivel) y `sintError05..12` y `18..24` (cuerpo entre llaves / varias
+    sentencias —tanto con lista de parámetros como con uno solo entre
+    paréntesis—, parámetro con tipo, sin cuerpo, coma colgante, sin flecha, sin
+    `)` de cierre, sólo la flecha, parámetro malformado en medio de una lista,
+    y los casos que `<TrasParenId>` rechaza en el propio sintáctico en vez de
+    diferir a semántica: `(a + b) -> e`, llamada a método, asignación, índice
+    de arreglo y paréntesis anidados) — con 0, 1, pocos y muchos parámetros.
   - Variable local clásica: `sintCorrecto08` (`int x;`, `int x, y, z = 10;`,
     `T g;`, `Foo x;`, `Foo<Bar> x = new Foo<Bar>();`, conviviendo con `var` y
     con `Clase.metodo();`) y `sintError13..17` (sin `;`, nombre no idMetVar,
     coma colgante, dos nombres sin coma, init vacío).
+  - Visibilidad de miembros: `sintCorrecto10` (`public`/`private`/implícita en
+    atributos —incluido uno de tipo clase genérica—, métodos y constructores,
+    conviviendo en la misma clase) y `sintError25..26` (orden invertido,
+    `static private`; doble visibilidad, `public private`).
+  - `for`: `sintCorrecto11` (clásica completa, las tres cláusulas vacías,
+    combinaciones parciales, tipo primitivo/clase/genérico, for-each,
+    inicialización con llamada estática, cuerpo con y sin llaves, anidado),
+    `sintCorrecto12` (clásica completa: tipo primitivo, `idGen`, `idClase` con
+    llamada al constructor, e inicialización por asignación a variable
+    existente) y `sintCorrecto13` (for-each completo: tipo primitivo, `idGen`,
+    `idClase` simple y genérico, cuerpo con y sin llaves, anidado) y
+    `sintError27..30` (lista por coma en la inicialización, falta `;`
+    separador, `,` en vez de `:` en for-each, `for` sin paréntesis) y
+    `sintError31..33` (falta el `;` que delimita cada sección —init, cond,
+    act—: el contenido de una sección puede omitirse, pero no su `;`; al
+    faltar, la sección siguiente "corre" un lugar y el error recién aparece al
+    llegar al `)` de cierre sin el último `;` pendiente).
+  - Genéricos anidados y notación diamante: `sintCorrecto14` (anidado en
+    atributo, anidado triple —fuerza el cierre `>>>`, tres `OP_MAYOR`
+    consecutivos—, en variable local clásica y en for-each; diamante en `new`
+    con y sin tipo anidado del lado izquierdo; `new` sin genérico —tipo
+    crudo— y con argumento explícito no-diamante) y `sintError34..36`
+    (diamante fuera de `new` en una declaración, diamante en el tipo de un
+    for-each, `>` de cierre faltante en un anidado).
+  - Inicializadores de atributo: `sintCorrecto15` (tipo primitivo, `idClase`
+    con `new`, arreglo con inicializador `new`, atributo sin inicializar,
+    conviviendo con visibilidad, constructor y método) y `sintError37..38`
+    (falta el `;` tras el inicializador, `==` en vez de `=`).
+  - Inicializadores de arreglo entre llaves: `sintCorrecto16` (tipo
+    primitivo, `{}` vacío, multidimensional anidado, tipo clase, y la forma
+    de tamaño de siempre sin inicializador) y `sintError39..40` (tamaño e
+    inicializador mezclados, coma colgante en el inicializador).
+  - Ternario: `sintCorrecto17` (precedencia frente a operadores binarios en la
+    condición y en el `valorFalse`, y con la condición entre paréntesis) y
+    `sintCorrecto18` (anidado y asociativo a derecha en el `valorFalse`, con y
+    sin paréntesis, y anidado en el `valorTrue` con paréntesis explícito — el
+    caso que destapó el bug de `trasParenId()`, ver "Precedencia del operador
+    ternario") y `sintError41..42` (falta `:` entre `valorTrue` y `valorFalse`,
+    falta el `valorFalse` tras `:`).
+  - Postfijo `++`/`--`: `sintCorrecto19` (sobre el primer y el segundo término
+    de una cadena binaria, entre paréntesis —sólo y junto a otro operando—,
+    sobre una referencia encadenada `a.b.c++`, dentro de un ternario, y en el
+    incremento de un `for` clásico), `sintCorrecto20` (encadenado `a++--` y
+    `a----++`, caso positivo — ver "Postfijo `++`/`--`" sobre por qué no es
+    error) y `sintError43` (prefijo `++a` fuera de alcance de `REQ-AS-014`).
 
-  Los 4 testers juntos (léxico + sintáctico) dan `OK (63 tests)`.
+  Los 4 testers juntos (léxico + sintáctico) dan `OK (101 tests)`.
 - `SIntaxis.md` solo tiene la introducción y notación (BNF, terminal/no
   terminal), no la gramática en sí; la gramática de partida y su versión ya
   transformada a LL(1) viven por ahora en la sección "Gramática" de este
@@ -1390,19 +2041,59 @@ si se puede evitar, para poder reportar varios errores en una sola corrida.
    factorización de `<Miembro>` / `<Sentencia>` / `<Primario>` / `new`). Del
    **Paso 5** ya están integradas (sección "Gramática Expandida (Logros)") la
    **lambda (`REQ-AS-005`)** —con "Factorización del prefijo `(`" y el token
-   `ARROW`— y la **variable local clásica (`REQ-AS-006`)** —con "Factorización
-   de `<Sentencia>`"—. Faltan `REQ-AS-007..014` sobre esa base, reaplicando los
-   pasos 1–3 a cada no terminal que toquen (el `<` / `>` / `>>` de los genéricos
-   anidados sigue siendo el punto abierto).
+   `ARROW`—, la **variable local clásica (`REQ-AS-006`)** —con "Factorización
+   de `<Sentencia>`"—, la **visibilidad de miembros (`REQ-AS-007`)** —con
+   "Factorización de `<Miembro>`" y el token `PR_PRIVATE`—, el **`for`
+   (`REQ-AS-009`)** —con "Factorización de `<For>`" y el token `PR_FOR` (el
+   `:` ya existía como `DOS_PUNTOS`)— y los **genéricos anidados y notación
+   diamante (`REQ-AS-010`)** —`<InstanciadoOParametrico>` recursa y
+   `<RestoNew>` suma `<TipoGenericoOpcionalNew>`/`<DiamanteOTipo>`; el `<` /
+   `>` / `>>` que quedaba como punto abierto **no era un problema real**: el
+   léxico ya tokeniza `>>` como dos `OP_MAYOR` sueltos—, los
+   **inicializadores de atributo (`REQ-AS-011`)** —tercera rama de
+   `<RestoMiembro>`, sin conflicto LL(1) que factorizar— y los
+   **inicializadores de arreglo entre llaves (`REQ-AS-012`)** —
+   `<DimensionesNew>` reemplaza a `<DimensionesConTamanio>`; tras el primer
+   `[`, un `]` inmediato compromete a la forma con `<InicializadorArreglo>`
+   obligatorio en vez de la forma de tamaño—, el **ternario (`REQ-AS-013`)**
+   —colgado de `<ExpresionCompuesta>` como sufijo opcional, con menos
+   precedencia que cualquier operador binario y asociatividad a derecha sin
+   recursión explícita (ver "Precedencia del operador ternario")— y el
+   **postfijo `++`/`--` (`REQ-AS-014`)** —colgado de `<ExpresionBasica>`, al
+   revés que el ternario, porque es una propiedad por operando y no de la
+   expresión completa (ver la sección "Postfijo" más arriba)—. **El Paso 5
+   queda completo**: `REQ-AS-005..014` ya están en la gramática.
 2. Hecho — `AnalizadorSintacticoImpl` es la traducción de esa gramática (un
    método por no terminal, sobre el esquema `start()` / `match()` descripto
    acá), **incluidas la lambda** (`operando()` reescrito + `trasId()` /
-   `trasParen()` / `trasParenResto()` / `colaParen()` / `listaIdLambda()` /
+   `trasParen()` / `trasParenId()` / `decidirTrasCierre()` / `listaIdLambda()` /
    `restoListaIdLambda()`; `referencia()` / `primario()` / `expresionParentizada()`
-   inlineados) **y la variable local clásica** (ramas nuevas en `sentencia()` +
-   `sentIdClase()` / `restoDeclLocal()` / `masIdsLocal()` / `initLocalOpc()`).
-   Falta sumarle los métodos de `REQ-AS-007..014` a medida que se defina la
-   gramática de esas extensiones.
+   inlineados), **la variable local clásica** (ramas nuevas en `sentencia()` +
+   `sentIdClase()` / `restoDeclLocal()` / `masIdsLocal()` / `initLocalOpc()`),
+   **la visibilidad de miembros** (`miembro()` reescrito como `visibilidad()` +
+   `cuerpoMiembro()`, con `trasIdClaseMiembro()` factorizando el prefijo
+   `idClase` del constructor; token `PR_PRIVATE` sumado a `TokenType` y
+   `TablaPalabrasClave`), **el `for`** (`sentenciaFor()` + `clausulasFor()` /
+   `trasIdForTipo()` / `trasIdClaseFor()` / `condFor()` / `actFor()`; token
+   `PR_FOR` sumado a `TokenType` y `TablaPalabrasClave`) y **los genéricos
+   anidados y diamante** (`instanciadoOParametrico()` recursa en su rama
+   `idClase`; `restoNew()` llama a `tipoGenericoOpcionalNew()` /
+   `diamanteOTipo()`, nuevos, en vez de `tipoGenericoOpcional()`; sin tokens
+   nuevos), **los inicializadores de atributo** (`restoMiembro()` suma la
+   rama `<OperadorAsignacion> <ExpresionCompuesta> ;`; sin tokens nuevos) y
+   **los inicializadores de arreglo** (`dimensionesNew()` + `trasCorcheteNew()`
+   / `masCorchetesVaciosNew()` / `inicializadorArreglo()` /
+   `listaValoresArregloOpcional()` / `listaValoresArreglo()` /
+   `restoValoresArreglo()` / `valorArreglo()`, reemplazando a
+   `dimensionesConTamanio()` en `restoNew()`/`restoNewIdClase()`; sin tokens
+   nuevos), **el ternario** (`expresionCompuesta()` suma `ternarioOpcional()`;
+   token `INTERROGACION` sumado a `TokenType` y reconocido en
+   `AnalizadorLexicoImpl`; corregido además un olvido de `ternarioOpcional()`
+   en `trasParenId()` que rechazaba `(c > d ? c : d)`) y **el postfijo**
+   (`expresionBasica()` suma `postfijoOpcional()`; sin tokens nuevos —
+   `OP_INCREMENTO`/`OP_DECREMENTO` ya existían sin usar en el sintáctico—;
+   corregido el mismo tipo de olvido en `trasParenId()`, que rechazaba
+   `(a++)`). **Los métodos del Paso 5 están completos.**
 3. Hecho — `nextToken()` implementado en `AnalizadorLexicoImpl` en modo *pull*
    sobre el mismo autómata que `startAnalizar()`, sin tocar el camino de la
    etapa 1. `src/Model` compila entero.

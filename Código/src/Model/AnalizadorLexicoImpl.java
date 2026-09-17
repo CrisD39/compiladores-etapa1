@@ -192,6 +192,7 @@ public class AnalizadorLexicoImpl implements AnalizadorLexico
                 case ',' -> emitir(TokenType.COMA);
                 case '.' -> emitir(TokenType.PUNTO);
                 case ':' -> emitir(TokenType.DOS_PUNTOS);
+                case '?' -> emitir(TokenType.INTERROGACION);
                 case '%' -> emitir(TokenType.OP_MOD);
                 case '*' -> emitir(TokenType.OP_MULT);
                 case '\'' -> estadoChar();      // REQ-AL-10

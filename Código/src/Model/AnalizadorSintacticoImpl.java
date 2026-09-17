@@ -22,10 +22,14 @@ import java.util.Set;
  * <p>La expresión lambda ({@code REQ-AS-005}) ya está implementada según la
  * sección "Gramática Expandida (Logros)" del documento: se sumó el token
  * {@code ARROW} ({@code ->}) al léxico y {@code <Operando>} quedó reescrito con
- * la factorización {@code <TrasId>} / {@code <TrasParen>} / {@code <TrasParenResto>}
- * / {@code <ColaParen>} / {@code <ListaIdLambda>}, que inlinea {@code <Referencia>},
- * {@code <Primario>} y {@code <ExpresionParentizada>}. El parser sigue decidiendo
- * sólo con FIRST y un token de lookahead ({@code ->} se distingue por su terminal).
+ * la factorización {@code <TrasId>} / {@code <TrasParen>} / {@code <TrasParenId>}
+ * / {@code <DecidirTrasCierre>} / {@code <ListaIdLambda>}, que inlinea
+ * {@code <Referencia>}, {@code <Primario>} y {@code <ExpresionParentizada>}. El
+ * parser sigue decidiendo sólo con FIRST y un token de lookahead ({@code ->} se
+ * distingue por su terminal). La bifurcación por {@code idMetVar} en
+ * {@code <TrasParenId>} además rechaza en el propio sintáctico casos como
+ * {@code (a + b) -> e} (no hace falta diferirlo a una etapa semántica): ningún
+ * operando que no arranque con {@code idMetVar} puede ser un parámetro válido.
  *
  * <p>La variable local clásica ({@code REQ-AS-006}) también está implementada:
  * {@code <Sentencia>} suma {@code <TipoPrimitivo>} / {@code idGen} / {@code idClase}
@@ -34,11 +38,76 @@ import java.util.Set;
  * llamada estática) por el token que sigue. La forma con {@code var}
  * ({@code <VarLocal>}) queda intacta.
  *
+ * <p>La visibilidad de miembros ({@code REQ-AS-007}) también está implementada:
+ * se sumó el token {@code PR_PRIVATE} (palabra clave {@code private}) al léxico
+ * y {@code <Miembro>} quedó reescrito como {@code <Visibilidad> <CuerpoMiembro>}
+ * ({@code visibilidad()} / {@code cuerpoMiembro()}). Como {@code public} deja de
+ * ser el token que marca al constructor, su prefijo {@code idClase} pasa a
+ * compartirse con el de un atributo/método de tipo clase y se factoriza en
+ * profundidad en {@code trasIdClaseMiembro()} (misma técnica que
+ * {@code <SentIdClase>}), mirando si tras {@code idClase} viene {@code (}
+ * (constructor) o cualquier otra cosa (tipo clase).
+ *
+ * <p>El {@code for} ({@code REQ-AS-009}) también está implementado, en sus
+ * dos formas (clásico con {@code ;} y for-each con
+ * {@code :}): se sumó el token {@code PR_FOR} al léxico (el {@code :} ya
+ * existía como {@code DOS_PUNTOS}) y {@code sentenciaFor()} llama a
+ * {@code clausulasFor()}, que factoriza el prefijo compartido entre ambas
+ * formas ({@code <Tipo> idMetVar}) igual que el resto del parser: consume el
+ * tipo y el nombre, y decide con **un** token más ({@code :} vs. {@code =}/{@code ;})
+ * en {@code trasIdForTipo()}. El prefijo {@code idClase} vuelve a chocar con
+ * una llamada estática como inicialización (p. ej. {@code Fabrica.reset()}) y
+ * se resuelve en {@code trasIdClaseFor()}, misma técnica que
+ * {@code <SentIdClase>}/{@code trasIdClaseMiembro()}. Las tres secciones
+ * (init/cond/act) son opcionales, como en Java ({@code for (;;)}); el cuerpo
+ * es {@code <Sentencia>}, no {@code <Bloque>}, igual que {@code <If>}/
+ * {@code <While>}. El for-each no admite {@code var} (sólo tipo explícito).
+ *
+ * <p>Los genéricos anidados y la notación diamante ({@code REQ-AS-010})
+ * también están implementados: {@code instanciadoOParametrico()} pasó a
+ * recursar en su rama {@code idClase} (llama a {@code tipoGenericoOpcional()}),
+ * lo que habilita el anidado (p. ej. {@code Caja<Lista<Item>>}) en todos los
+ * lugares que ya usaban {@code <TipoGenericoOpcional>} sin tocarlos. El
+ * diamante ({@code new Foo<>()}) es aparte, sólo válido al instanciar: se
+ * sumaron {@code tipoGenericoOpcionalNew()} / {@code diamanteOTipo()} (el
+ * interior puede ser vacío) y {@code restoNew()} los usa en vez de
+ * {@code tipoGenericoOpcional()}; el resto de contextos de tipo sigue exigiendo
+ * un argumento real, así que {@code Foo<> x;} sigue siendo error sintáctico.
+ * El cierre {@code >>} de un genérico anidado tokeniza como dos {@code OP_MAYOR}
+ * sueltos ({@code estadoMayor()} sólo combina con {@code =}), así que no hizo
+ * falta ningún cambio en el léxico.
+ *
+ * <p>Los inicializadores de atributo ({@code REQ-AS-011}) también están
+ * implementados: {@code <RestoMiembro>} suma
+ * una tercera rama {@code <OperadorAsignacion> <ExpresionCompuesta> ;} (p. ej.
+ * {@code int x = 5;}), con FIRST disjunto de las otras dos ({@code ;} / {@code (}
+ * / {@code =}) — no hizo falta factorizar nada nuevo, es la primera extensión
+ * de esta lista sin conflicto LL(1) que resolver. Ya cubre atributos de
+ * arreglo con inicializador {@code new} (p. ej. {@code int[] arr = new int[5];}),
+ * porque {@code <DimensionesOpcionales>} y {@code <ExpresionCompuesta>} ya
+ * existían; lo que falta ({@code REQ-AS-012}) es el inicializador entre llaves
+ * ({@code int[] arr = {1, 2, 3};}). Nota de alcance: {@code static} en esta
+ * gramática sigue produciendo sólo métodos, nunca atributos (no forma parte de
+ * este requerimiento).
+ *
+ * <p>El inicializador de arreglo entre llaves ({@code REQ-AS-012}) también
+ * está implementado, sólo al construir con {@code new}: {@code <DimensionesNew>}
+ * reemplaza a la vieja {@code <DimensionesConTamanio>} en {@code restoNew()} /
+ * {@code restoNewIdClase()}. Tras el primer {@code [}, un {@code ]} inmediato
+ * ({@code trasCorcheteNew()}) compromete a la forma de inicializador —todos los
+ * corchetes de esa creación quedan vacíos ({@code masCorchetesVaciosNew()}) y
+ * el {@code { ... }} ({@code inicializadorArreglo()}) pasa a ser obligatorio—,
+ * mientras que una expresión ahí sigue la forma de tamaño de siempre
+ * (reusando {@code dimensionesConTamanioOpc()} sin cambios); no se pueden
+ * mezclar ambas, igual que en Java. {@code <ValorArreglo>} admite anidar otro
+ * {@code <InicializadorArreglo>}, así que {@code new int[][]{{1,2},{3,4}}} sale
+ * gratis. Sin tokens nuevos en el léxico: las llaves ya existían como
+ * {@code LLAVE_A}/{@code LLAVE_C} para {@code <Bloque>}.
+ *
  * <p>Pendientes (ver el documento de diseño):
  * <ul>
- *   <li>Extensiones {@code REQ-AS-007..014} (visibilidad, {@code for},
- *       genéricos anidados y diamante, inicializadores de atributo y de arreglo,
- *       ternario, {@code ++}/{@code --}): todavía no están en la gramática ni acá.</li>
+ *   <li>Extensiones {@code REQ-AS-013..014} (ternario, {@code ++}/{@code --}):
+ *       todavía no están en la gramática ni acá.</li>
  *   <li>{@code REQ-AS-008}: recuperación en modo pánico. Hoy {@link #error} lanza
  *       {@link ErrorSintactico} y se corta en el primer error.</li>
  *   <li>Reporte vía listener (como {@code ResultadoLexicoListener}) en vez de
@@ -77,9 +146,10 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
             TokenType.PR_BOOLEAN, TokenType.PR_CHAR, TokenType.PR_INT,
             TokenType.ID_CLASE, TokenType.ID_GEN, TokenType.PR_VOID);
 
-    // FIRST(<Miembro>) = { public static void } ∪ FIRST(<Tipo>)
+    // FIRST(<Miembro>) = FIRST(<Visibilidad>) ∪ FIRST(<CuerpoMiembro>)
+    //                  = { public, private } ∪ { static, void } ∪ FIRST(<Tipo>)
     private static final Set<TokenType> PRIMEROS_MIEMBRO = EnumSet.of(
-            TokenType.PR_PUBLIC, TokenType.PR_STATIC, TokenType.PR_VOID,
+            TokenType.PR_PUBLIC, TokenType.PR_PRIVATE, TokenType.PR_STATIC, TokenType.PR_VOID,
             TokenType.PR_BOOLEAN, TokenType.PR_CHAR, TokenType.PR_INT,
             TokenType.ID_CLASE, TokenType.ID_GEN);
 
@@ -111,12 +181,12 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
             TokenType.PR_THIS, TokenType.LIT_STRING, TokenType.ID_MET_VAR,
             TokenType.PR_NEW, TokenType.ID_CLASE, TokenType.PAR_A);
 
-    // FIRST(<Sentencia>) = { ; var return if while { } ∪ FIRST(<Tipo>) ∪ FIRST(<Expresion>)
+    // FIRST(<Sentencia>) = { ; var return if while for { } ∪ FIRST(<Tipo>) ∪ FIRST(<Expresion>)
     // FIRST(<Tipo>) suma boolean/char/int e idGen (idClase ya viene de FIRST(<Expresion>)):
     // son el arranque de la declaración de variable local clásica (REQ-AS-006).
     private static final Set<TokenType> PRIMEROS_SENTENCIA = EnumSet.of(
             TokenType.PUNTO_COMA, TokenType.PR_VAR, TokenType.PR_RETURN,
-            TokenType.PR_IF, TokenType.PR_WHILE, TokenType.LLAVE_A,
+            TokenType.PR_IF, TokenType.PR_WHILE, TokenType.PR_FOR, TokenType.LLAVE_A,
             TokenType.PR_BOOLEAN, TokenType.PR_CHAR, TokenType.PR_INT, TokenType.ID_GEN,
             TokenType.OP_MAS, TokenType.OP_MENOS, TokenType.OP_NOT,
             TokenType.PR_TRUE, TokenType.PR_FALSE, TokenType.LIT_INT,
@@ -263,17 +333,35 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
         }
     }
 
-    // <Miembro> ::= public idClase <ArgsFormales> <Bloque>
-    //            |  static <TipoMetodo> idMetVar <ArgsFormales> <Bloque>
-    //            |  void idMetVar <ArgsFormales> <Bloque>
-    //            |  <Tipo> idMetVar <RestoMiembro>
+    // <Miembro> ::= <Visibilidad> <CuerpoMiembro>
     private void miembro() {
+        visibilidad();
+        cuerpoMiembro();
+    }
+
+    // <Visibilidad> ::= public | private | ϵ
+    private void visibilidad() {
         if (actualEs(TokenType.PR_PUBLIC)) {
             match(TokenType.PR_PUBLIC);
-            match(TokenType.ID_CLASE);
-            argsFormales();
-            bloque();
-        } else if (actualEs(TokenType.PR_STATIC)) {
+        } else if (actualEs(TokenType.PR_PRIVATE)) {
+            match(TokenType.PR_PRIVATE);
+        } else {
+            // ϵ — no hace nada
+        }
+    }
+
+    // <CuerpoMiembro> ::= static <TipoMetodo> idMetVar <ArgsFormales> <Bloque>
+    //                 |  void idMetVar <ArgsFormales> <Bloque>
+    //                 |  <TipoPrimitivo> <DimensionesOpcionales> idMetVar <RestoMiembro>
+    //                 |  idGen <DimensionesOpcionales> idMetVar <RestoMiembro>
+    //                 |  idClase <TrasIdClaseMiembro>
+    // El "public" que antes marcaba al constructor pasó a ser parte de
+    // <Visibilidad>; el constructor (idClase <ArgsFormales> <Bloque>) queda con
+    // el mismo prefijo "idClase" que un atributo/método de tipo clase, así que
+    // se factoriza en profundidad en trasIdClaseMiembro() (ver "Factorización
+    // de <Miembro>" en el documento).
+    private void cuerpoMiembro() {
+        if (actualEs(TokenType.PR_STATIC)) {
             match(TokenType.PR_STATIC);
             tipoMetodo();
             match(TokenType.ID_MET_VAR);
@@ -284,24 +372,60 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
             match(TokenType.ID_MET_VAR);
             argsFormales();
             bloque();
-        } else if (actualEn(PRIMEROS_TIPO)) {
-            tipo();
+        } else if (actualEn(PRIMEROS_TIPO_PRIMITIVO)) {
+            tipoPrimitivo();
+            dimensionesOpcionales();
             match(TokenType.ID_MET_VAR);
             restoMiembro();
+        } else if (actualEs(TokenType.ID_GEN)) {
+            match(TokenType.ID_GEN);
+            dimensionesOpcionales();
+            match(TokenType.ID_MET_VAR);
+            restoMiembro();
+        } else if (actualEs(TokenType.ID_CLASE)) {
+            match(TokenType.ID_CLASE);
+            trasIdClaseMiembro();
         } else {
-            error("un miembro de clase (\"public\", \"static\", \"void\" o un tipo)");
+            error("un miembro de clase (\"static\", \"void\" o un tipo)");
         }
     }
 
-    // <RestoMiembro> ::= ; | <ArgsFormales> <Bloque>
+    // <TrasIdClaseMiembro> ::= <ArgsFormales> <Bloque>
+    //                       |  <TipoGenericoOpcional> <DimensionesOpcionales> idMetVar <RestoMiembro>
+    // Tras "idClase", "(" => era el constructor (idClase <ArgsFormales> <Bloque>);
+    // cualquier otra cosa => era un atributo o método cuyo tipo es esa clase
+    // (Foo bar; | Foo<X> bar; | Foo bar(...) {...}), con <TipoGenericoOpcional>
+    // y <DimensionesOpcionales> anulables hasta idMetVar.
+    private void trasIdClaseMiembro() {
+        if (actualEs(TokenType.PAR_A)) {
+            argsFormales();
+            bloque();
+        } else {
+            tipoGenericoOpcional();
+            dimensionesOpcionales();
+            match(TokenType.ID_MET_VAR);
+            restoMiembro();
+        }
+    }
+
+    // <RestoMiembro> ::= ;
+    //                |  <ArgsFormales> <Bloque>
+    //                |  <OperadorAsignacion> <ExpresionCompuesta> ;
+    // La tercera rama (REQ-AS-011) es un atributo con inicializador
+    // (int x = 5;). FIRST disjuntos con las otras dos ({ ; } / { ( } / { = }):
+    // no hace falta factorizar nada, "=" ya alcanza para decidir.
     private void restoMiembro() {
         if (actualEs(TokenType.PUNTO_COMA)) {
             match(TokenType.PUNTO_COMA);
         } else if (actualEs(TokenType.PAR_A)) {
             argsFormales();
             bloque();
+        } else if (actualEs(TokenType.OP_ASIGN)) {
+            operadorAsignacion();
+            expresionCompuesta();
+            match(TokenType.PUNTO_COMA);
         } else {
-            error("\";\" (atributo) o \"(\" (método)");
+            error("\";\", \"=\" (atributo) o \"(\" (método)");
         }
     }
 
@@ -384,12 +508,43 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
         }
     }
 
-    // <InstanciadoOParametrico> ::= idGen | idClase
+    // <TipoGenericoOpcionalNew> ::= < <DiamanteOTipo> > | ϵ
+    // Variante de <TipoGenericoOpcional> sólo para <RestoNew>: acá sí se
+    // admite el interior vacío (REQ-AS-010, notación diamante "<>"), porque
+    // el diamante sólo es válido al instanciar (new Foo<>()), nunca en una
+    // declaración de tipo — esas siguen usando tipoGenericoOpcional() sin
+    // tocar, así que "Foo<> x;" sigue siendo error sintáctico.
+    private void tipoGenericoOpcionalNew() {
+        if (actualEs(TokenType.OP_MENOR)) {
+            match(TokenType.OP_MENOR);
+            diamanteOTipo();
+            match(TokenType.OP_MAYOR);
+        } else {
+            // ϵ — no hace nada
+        }
+    }
+
+    // <DiamanteOTipo> ::= <InstanciadoOParametrico> | ϵ      (ϵ = "<>")
+    private void diamanteOTipo() {
+        if (actualEs(TokenType.ID_GEN) || actualEs(TokenType.ID_CLASE)) {
+            instanciadoOParametrico();
+        } else {
+            // ϵ — no hace nada (notación diamante: new Foo<>())
+        }
+    }
+
+    // <InstanciadoOParametrico> ::= idGen | idClase <TipoGenericoOpcional>
+    // El idGen no anida (un parámetro de tipo no puede llevar su propio
+    // argumento); el idClase sí, vía <TipoGenericoOpcional> (REQ-AS-010:
+    // genéricos anidados, p. ej. Caja<Lista<Item>>). El cierre "Item>>" tokeniza
+    // como dos OP_MAYOR sueltos (estadoMayor() sólo combina con "="), así que
+    // cada nivel de anidamiento consume el suyo sin tratamiento especial.
     private void instanciadoOParametrico() {
         if (actualEs(TokenType.ID_GEN)) {
             match(TokenType.ID_GEN);
         } else if (actualEs(TokenType.ID_CLASE)) {
             match(TokenType.ID_CLASE);
+            tipoGenericoOpcional();
         } else {
             error("idGen o idClase");
         }
@@ -486,6 +641,8 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
             sentenciaIf();
         } else if (actualEs(TokenType.PR_WHILE)) {
             sentenciaWhile();
+        } else if (actualEs(TokenType.PR_FOR)) {
+            sentenciaFor();
         } else if (actualEs(TokenType.LLAVE_A)) {
             bloque();
         } else if (actualEn(PRIMEROS_EXPRESION)) {
@@ -605,6 +762,112 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
         sentencia();
     }
 
+    // <For> ::= for ( <ClausulasFor> ) <Sentencia>
+    // El cuerpo es <Sentencia> (no <Bloque>), igual que <If>/<While>: admite
+    // tanto una sentencia simple sin llaves como un bloque.
+    private void sentenciaFor() {
+        match(TokenType.PR_FOR);
+        match(TokenType.PAR_A);
+        clausulasFor();
+        match(TokenType.PAR_C);
+        sentencia();
+    }
+
+    // <ClausulasFor> ::= ; <CondFor> ; <ActFor>
+    //                 |  <TipoPrimitivo> idMetVar <TrasIdForTipo>
+    //                 |  idGen idMetVar <TrasIdForTipo>
+    //                 |  idClase <TrasIdClaseFor>
+    //                 |  <Expresion> ; <CondFor> ; <ActFor>
+    // idClase se intercepta antes que el resto de <Expresion> por la misma
+    // razón que en sentencia()/<SentIdClase>: tras "idClase" puede seguir un
+    // tipo (declaración clásica o for-each) o el resto de una llamada estática
+    // (expresión de inicialización, p. ej. Fabrica.reset()); un token más lo
+    // decide en trasIdClaseFor().
+    private void clausulasFor() {
+        if (actualEs(TokenType.PUNTO_COMA)) {
+            match(TokenType.PUNTO_COMA);
+            condFor();
+            match(TokenType.PUNTO_COMA);
+            actFor();
+        } else if (actualEn(PRIMEROS_TIPO_PRIMITIVO)) {
+            tipoPrimitivo();
+            match(TokenType.ID_MET_VAR);
+            trasIdForTipo();
+        } else if (actualEs(TokenType.ID_GEN)) {
+            match(TokenType.ID_GEN);
+            match(TokenType.ID_MET_VAR);
+            trasIdForTipo();
+        } else if (actualEs(TokenType.ID_CLASE)) {
+            match(TokenType.ID_CLASE);
+            trasIdClaseFor();
+        } else if (actualEn(PRIMEROS_EXPRESION)) {
+            expresion();
+            match(TokenType.PUNTO_COMA);
+            condFor();
+            match(TokenType.PUNTO_COMA);
+            actFor();
+        } else {
+            error("\";\", un tipo o una expresión (inicialización del \"for\")");
+        }
+    }
+
+    // <TrasIdForTipo> ::= : <Expresion>                          (for-each)
+    //                  |  <InitLocalOpc> ; <CondFor> ; <ActFor>  (for clásico con declaración)
+    private void trasIdForTipo() {
+        if (actualEs(TokenType.DOS_PUNTOS)) {
+            match(TokenType.DOS_PUNTOS);
+            expresion();
+        } else {
+            initLocalOpc();
+            match(TokenType.PUNTO_COMA);
+            condFor();
+            match(TokenType.PUNTO_COMA);
+            actFor();
+        }
+    }
+
+    // <TrasIdClaseFor> ::= <TipoGenericoOpcional> idMetVar <TrasIdForTipo>
+    //                   |  . idMetVar <ArgsActuales> <ReferenciaResto> <ExpresionCompuestaResto> <RestoAsignacion> ; <CondFor> ; <ActFor>
+    // "." => era una llamada estática como expresión de inicialización; misma
+    // reconstrucción de cola de <Expresion> que usa <SentIdClase>. Cualquier
+    // otra cosa => era un tipo clase (declaración o for-each).
+    private void trasIdClaseFor() {
+        if (actualEs(TokenType.PUNTO)) {
+            match(TokenType.PUNTO);
+            match(TokenType.ID_MET_VAR);
+            argsActuales();
+            referenciaResto();
+            expresionCompuestaResto();
+            restoAsignacion();
+            match(TokenType.PUNTO_COMA);
+            condFor();
+            match(TokenType.PUNTO_COMA);
+            actFor();
+        } else {
+            tipoGenericoOpcional();
+            match(TokenType.ID_MET_VAR);
+            trasIdForTipo();
+        }
+    }
+
+    // <CondFor> ::= <Expresion> | ϵ
+    private void condFor() {
+        if (actualEn(PRIMEROS_EXPRESION)) {
+            expresion();
+        } else {
+            // ϵ — no hace nada (cláusula vacía: for (init;;act))
+        }
+    }
+
+    // <ActFor> ::= <Expresion> | ϵ
+    private void actFor() {
+        if (actualEn(PRIMEROS_EXPRESION)) {
+            expresion();
+        } else {
+            // ϵ — no hace nada (cláusula vacía: for (init;cond;))
+        }
+    }
+
     // <Expresion> ::= <ExpresionCompuesta> <RestoAsignacion>
     private void expresion() {
         expresionCompuesta();
@@ -630,6 +893,7 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
     private void expresionCompuesta() {
         expresionBasica();
         expresionCompuestaResto();
+        ternarioOpcional();
     }
 
     // <ExpresionCompuestaResto> ::= <OperadorBinario> <ExpresionBasica> <ExpresionCompuestaResto> | ϵ
@@ -652,15 +916,53 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
         }
     }
 
-    // <ExpresionBasica> ::= <OperadorUnario> <Operando> | <Operando>
+    // <TernarioOpcional> ::= ? <ExpresionCompuesta> : <ExpresionCompuesta> | ϵ
+    // REQ-AS-013. Se engancha en <ExpresionCompuesta> (no en <ExpresionBasica>) para que la
+    // condición sea la cadena binaria completa que ya se armó en expresionBasica()+expresionCompuestaResto(),
+    // dejando al ternario con menos precedencia que cualquier operador binario (como en Java).
+    // El <valorFalse> es <ExpresionCompuesta>, que ya termina en su propio ternarioOpcional(): un
+    // ternario anidado ahí (a ? b : c ? d : e) se resuelve solo, sin repetir la llamada acá, y da
+    // asociatividad a derecha (a ? b : (c ? d : e)).
+    private void ternarioOpcional() {
+        if (actualEs(TokenType.INTERROGACION)) {
+            match(TokenType.INTERROGACION);
+            expresionCompuesta();
+            match(TokenType.DOS_PUNTOS);
+            expresionCompuesta();
+        } else {
+            // ϵ — no hace nada
+        }
+    }
+
+    // <ExpresionBasica> ::= <OperadorUnario> <Operando> <PostfijoOpcional> | <Operando> <PostfijoOpcional>
     private void expresionBasica() {
         if (actualEn(PRIMEROS_OP_UNARIO)) {
             operadorUnario();
             operando();
+            postfijoOpcional();
         } else if (actualEn(PRIMEROS_OPERANDO)) {
             operando();
+            postfijoOpcional();
         } else {
             error("una expresión");
+        }
+    }
+
+    // <PostfijoOpcional> ::= ++ <PostfijoOpcional> | -- <PostfijoOpcional> | ϵ
+    // REQ-AS-014. Va pegado a <Operando> dentro de <ExpresionBasica> (no como sufijo de
+    // <ExpresionCompuesta>) para que se aplique a CADA término de la cadena binaria, no sólo al
+    // primero: expresionBasica() se llama una vez por término (acá y desde
+    // expresionCompuestaResto()), así que "a + x++" también queda cubierto sin duplicar el chequeo.
+    // Es recursiva (no un solo ++/--) para admitir encadenados como "a++--": la gramática real de
+    // Java también es recursiva ahí (PostIncrementExpression/PostDecrementExpression toman como
+    // operando otro PostfixExpression) y sólo lo rechaza en el chequeo de tipos ("a++" da un valor,
+    // no una variable) — acá, igual que con "1++" o "1 = 2;", esa distinción queda para semántica.
+    private void postfijoOpcional() {
+        if (actualEs(TokenType.OP_INCREMENTO) || actualEs(TokenType.OP_DECREMENTO)) {
+            avanzar();
+            postfijoOpcional();
+        } else {
+            // ϵ — no hace nada
         }
     }
 
@@ -725,43 +1027,58 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
     }
 
     // <TrasParen> ::= ) -> <Expresion>              (lambda de 0 parámetros: () -> e)
-    //             |  <Expresion> <TrasParenResto>
+    //             |  idMetVar <TrasParenId>         (posible parámetro: hay que ver qué sigue)
+    //             |  <Expresion> ) <ReferenciaResto> (cualquier otro arranque: nunca es lambda,
+    //                                                  un parámetro siempre es "idMetVar" o "()")
     private void trasParen() {
         if (actualEs(TokenType.PAR_C)) {
             match(TokenType.PAR_C);
             match(TokenType.ARROW);
             expresion();
+        } else if (actualEs(TokenType.ID_MET_VAR)) {
+            match(TokenType.ID_MET_VAR);
+            trasParenId();
         } else if (actualEn(PRIMEROS_EXPRESION)) {
             expresion();
-            trasParenResto();
+            match(TokenType.PAR_C);
+            referenciaResto();
         } else {
             error("\")\" (lambda sin parámetros) o una expresión");
         }
     }
 
-    // <TrasParenResto> ::= ) <ColaParen>
-    //                   |  , <ListaIdLambda> ) -> <Expresion>   (lambda de >=2 parámetros)
-    private void trasParenResto() {
-        if (actualEs(TokenType.PAR_C)) {
-            match(TokenType.PAR_C);
-            colaParen();
-        } else if (actualEs(TokenType.COMA)) {
+    // <TrasParenId> ::= , <ListaIdLambda> ) -> <Expresion>   (lambda de >=2 parámetros)
+    //               |  ) <DecidirTrasCierre>                  (un solo idMetVar: caso ambiguo real)
+    //               |  <TrasId> <ExpresionCompuestaResto> <RestoAsignacion> ) <ReferenciaResto>
+    //                  (el idMetVar era el comienzo de una expresión más grande —operador, ".",
+    //                  "[", "(", "=", o incluso un "->" de lambda anidada vía <TrasId>—: se sigue
+    //                  como expresión normal y, al cerrar, ya no se vuelve a ofrecer "->").
+    // Reusa <TrasId>/<ExpresionCompuestaResto>/<RestoAsignacion>/<ReferenciaResto> para no
+    // duplicar la jerarquía de precedencia de <Expresion>.
+    private void trasParenId() {
+        if (actualEs(TokenType.COMA)) {
             match(TokenType.COMA);
             listaIdLambda();
             match(TokenType.PAR_C);
             match(TokenType.ARROW);
             expresion();
+        } else if (actualEs(TokenType.PAR_C)) {
+            match(TokenType.PAR_C);
+            decidirTrasCierre();
         } else {
-            error("\")\" o \",\"");
+            trasId();
+            postfijoOpcional();
+            expresionCompuestaResto();
+            ternarioOpcional();
+            restoAsignacion();
+            match(TokenType.PAR_C);
+            referenciaResto();
         }
     }
 
-    // <ColaParen> ::= -> <Expresion>        (era ( x ) -> e : lambda de 1 parámetro)
-    //             |  <ReferenciaResto>      (era ( <Expresion> ) : expresión parentizada)
-    // Sobre-acepta ( <Expresion> ) -> e con <Expresion> que no es un idMetVar
-    // (p. ej. ( a + b ) -> e): es el costo conocido de factorizar el "(" y se
-    // rechaza en la etapa semántica (ver "El costo" en el documento).
-    private void colaParen() {
+    // <DecidirTrasCierre> ::= -> <Expresion>        (era ( x ) -> e : lambda de 1 parámetro)
+    //                      |  <ReferenciaResto>      (era ( x ) : expresión parentizada)
+    private void decidirTrasCierre() {
         if (actualEs(TokenType.ARROW)) {
             match(TokenType.ARROW);
             expresion();
@@ -824,29 +1141,29 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
         }
     }
 
-    // <RestoNew> ::= <TipoPrimitivo> <DimensionesConTamanio>
-    //            |  idGen <DimensionesConTamanio>
-    //            |  idClase <TipoGenericoOpcional> <RestoNewIdClase>
+    // <RestoNew> ::= <TipoPrimitivo> <DimensionesNew>
+    //            |  idGen <DimensionesNew>
+    //            |  idClase <TipoGenericoOpcionalNew> <RestoNewIdClase>
     private void restoNew() {
         if (actualEn(PRIMEROS_TIPO_PRIMITIVO)) {
             tipoPrimitivo();
-            dimensionesConTamanio();
+            dimensionesNew();
         } else if (actualEs(TokenType.ID_GEN)) {
             match(TokenType.ID_GEN);
-            dimensionesConTamanio();
+            dimensionesNew();
         } else if (actualEs(TokenType.ID_CLASE)) {
             match(TokenType.ID_CLASE);
-            tipoGenericoOpcional();
+            tipoGenericoOpcionalNew();
             restoNewIdClase();
         } else {
             error("un tipo después de \"new\"");
         }
     }
 
-    // <RestoNewIdClase> ::= <DimensionesConTamanio> | <ArgsActuales>
+    // <RestoNewIdClase> ::= <DimensionesNew> | <ArgsActuales>
     private void restoNewIdClase() {
         if (actualEs(TokenType.CORCHETE_A)) {
-            dimensionesConTamanio();
+            dimensionesNew();
         } else if (actualEs(TokenType.PAR_A)) {
             argsActuales();
         } else {
@@ -862,12 +1179,85 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
         argsActuales();
     }
 
-    // <DimensionesConTamanio> ::= [ <Expresion> ] <DimensionesConTamanioOpc>
-    private void dimensionesConTamanio() {
+    // <DimensionesNew> ::= [ <TrasCorcheteNew>
+    private void dimensionesNew() {
         match(TokenType.CORCHETE_A);
-        expresion();
-        match(TokenType.CORCHETE_C);
-        dimensionesConTamanioOpc();
+        trasCorcheteNew();
+    }
+
+    // <TrasCorcheteNew> ::= ] <MasCorchetesVaciosNew> <InicializadorArreglo>
+    //                   |  <Expresion> ] <DimensionesConTamanioOpc>
+    // "]" inmediato (REQ-AS-012): todos los corchetes de esta creación van
+    // vacíos y viene un inicializador obligatorio ({1,2,3}) — no se puede
+    // mezclar tamaño e inicializador, igual que en Java. Cualquier otra cosa:
+    // sigue la forma de tamaño de siempre, sin cambios.
+    private void trasCorcheteNew() {
+        if (actualEs(TokenType.CORCHETE_C)) {
+            match(TokenType.CORCHETE_C);
+            masCorchetesVaciosNew();
+            inicializadorArreglo();
+        } else {
+            expresion();
+            match(TokenType.CORCHETE_C);
+            dimensionesConTamanioOpc();
+        }
+    }
+
+    // <MasCorchetesVaciosNew> ::= [ ] <MasCorchetesVaciosNew> | ϵ
+    private void masCorchetesVaciosNew() {
+        if (actualEs(TokenType.CORCHETE_A)) {
+            match(TokenType.CORCHETE_A);
+            match(TokenType.CORCHETE_C);
+            masCorchetesVaciosNew();
+        } else {
+            // ϵ — no hace nada
+        }
+    }
+
+    // <InicializadorArreglo> ::= { <ListaValoresArregloOpcional> }
+    private void inicializadorArreglo() {
+        match(TokenType.LLAVE_A);
+        listaValoresArregloOpcional();
+        match(TokenType.LLAVE_C);
+    }
+
+    // <ListaValoresArregloOpcional> ::= <ListaValoresArreglo> | ϵ
+    private void listaValoresArregloOpcional() {
+        if (actualEs(TokenType.LLAVE_A) || actualEn(PRIMEROS_EXPRESION)) {
+            listaValoresArreglo();
+        } else {
+            // ϵ — no hace nada ("{ }" vacío también es válido)
+        }
+    }
+
+    // <ListaValoresArreglo> ::= <ValorArreglo> <RestoValoresArreglo>
+    private void listaValoresArreglo() {
+        valorArreglo();
+        restoValoresArreglo();
+    }
+
+    // <RestoValoresArreglo> ::= , <ValorArreglo> <RestoValoresArreglo> | ϵ
+    private void restoValoresArreglo() {
+        if (actualEs(TokenType.COMA)) {
+            match(TokenType.COMA);
+            valorArreglo();
+            restoValoresArreglo();
+        } else {
+            // ϵ — no hace nada
+        }
+    }
+
+    // <ValorArreglo> ::= <ExpresionCompuesta> | <InicializadorArreglo>
+    // Anidado habilita arreglos multidimensionales con inicializador
+    // (new int[][]{{1,2},{3,4}}) sin costo de factorización adicional.
+    private void valorArreglo() {
+        if (actualEs(TokenType.LLAVE_A)) {
+            inicializadorArreglo();
+        } else if (actualEn(PRIMEROS_EXPRESION)) {
+            expresionCompuesta();
+        } else {
+            error("un valor (expresión o \"{ ... }\" anidado)");
+        }
     }
 
     // <DimensionesConTamanioOpc> ::= [ <Expresion> ] <DimensionesConTamanioOpc> | ϵ

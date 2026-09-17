@@ -20,9 +20,11 @@ public final class TablaPalabrasClave {
         PALABRAS_CLAVE.put("int", TokenType.PR_INT);
         PALABRAS_CLAVE.put("void", TokenType.PR_VOID);
         PALABRAS_CLAVE.put("public", TokenType.PR_PUBLIC);
+        PALABRAS_CLAVE.put("private", TokenType.PR_PRIVATE);
         PALABRAS_CLAVE.put("if", TokenType.PR_IF);
         PALABRAS_CLAVE.put("else", TokenType.PR_ELSE);
         PALABRAS_CLAVE.put("while", TokenType.PR_WHILE);
+        PALABRAS_CLAVE.put("for", TokenType.PR_FOR);
         PALABRAS_CLAVE.put("return", TokenType.PR_RETURN);
         PALABRAS_CLAVE.put("var", TokenType.PR_VAR);
         PALABRAS_CLAVE.put("this", TokenType.PR_THIS);
