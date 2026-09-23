@@ -45,7 +45,7 @@ distintos y conviene poder citarlos sin ambigüedad.
 | REQ-AS-005 | El analizador sintáctico debe aceptar **expresiones lambda** con sintaxis similar a la de Java (`params -> cuerpo`). A diferencia de Java: los parámetros no declaran tipo explícito, el cuerpo es **una única expresión** (no se admite cuerpo entre llaves) y se permite cualquier cantidad de parámetros, incluido ninguno (`() -> expr`). La prohibición de capturar variables locales, parámetros o `this` dentro de la lambda es una restricción **semántica** (requiere resolución de nombres/alcances): queda anotada acá pero se verifica en una etapa posterior; el sintáctico solo valida la forma. Ver detalle debajo. |
 | REQ-AS-006 | El analizador sintáctico debe aceptar la declaración de variables locales en la forma clásica de Java: sin `var`, indicando el tipo (ejemplo `int x;`). Además debe admitir declarar varias variables e inicializarlas en una misma sentencia (ejemplo `int x,y,z = 10;`, un valor común al final para toda la lista; a qué variables les llega es semántico). **Implementado** — ver "Gramática Expandida (Logros)" y "Factorización de `<Sentencia>`". |
 | REQ-AS-007 | El analizador sintáctico debe permitir indicar la visibilidad de métodos, atributos y constructores de forma implícita o explícita: al declarar un miembro se puede omitir la visibilidad o indicar explícitamente `public` o `private`. **Implementado** — ver "Gramática Expandida (Logros)" y "Factorización de `<Miembro>`". |
-| REQ-AS-008 | El compilador no finaliza la ejecución ante el primer error sino que se recupera (modo pánico) y es capaz de reportar otros errores. Para eso, al encontrar un error, el analizador descarta la entrada hasta encontrar un token de sincronización que permita reanudar el análisis: se espera que se sincronice con el siguiente punto y coma, llave de cierre, o llave que abre según el contexto (ver "Manejo de errores sintácticos"). |
+| REQ-AS-008 | El compilador no finaliza la ejecución ante el primer error sino que se recupera (modo pánico) y es capaz de reportar otros errores. Para eso, al encontrar un error, el analizador descarta la entrada hasta encontrar un token de sincronización que permita reanudar el análisis: se espera que se sincronice con el siguiente punto y coma, llave de cierre, o llave que abre según el contexto (ver "Manejo de errores sintácticos"). **Implementado** — conjunto de sincronización `{ ; { } eof }`, ver "Manejo de errores sintácticos". |
 | REQ-AS-009 | El analizador sintáctico debe aceptar sentencias `for` similares a las de Java, en dos formas: la estándar con separadores `;` y la de iteradores (for-each) con `:`. Se restringe cada sección del `for` a una sola sentencia/expresión (no listas separadas por coma). **Implementado** — ver "Gramática Expandida (Logros)" y "Factorización de `<For>`". Las tres secciones de la forma clásica son opcionales (`for (;;)`, como en Java); el for-each no admite `var` (sólo tipo explícito). |
 | REQ-AS-010 | El analizador sintáctico debe permitir tipos genéricos anidados y la notación diamante (`<>`), de forma similar a Java. Una clase o interfaz sigue limitada a un único parámetro de tipo. La notación diamante solo puede utilizarse al instanciar una clase genérica. **Implementado** — ver "Gramática Expandida (Logros)". La declaración de clase/interfaz (`<GenericidadOpcional>`) no cambió: sigue con un único parámetro de tipo. |
 | REQ-AS-011 | El analizador sintáctico debe permitir inicializar los atributos en el momento de su declaración, al igual que en Java. **Implementado** — ver "Gramática Expandida (Logros)" (`<RestoMiembro>`). |
@@ -1784,34 +1784,92 @@ si se puede evitar, para poder reportar varios errores en una sola corrida.
   del token ofensivo. Si más adelante hace falta esa precisión, `Token`
   tendría que empezar a llevar columna también; queda como decisión abierta,
   no asumida acá.
-- **Recuperación (modo pánico)**: tras reportar un error, en vez de abortar,
-  el parser descarta tokens (`tokenActual = lexico.nextToken()`) hasta
-  encontrar uno de un **conjunto de sincronización** razonable para el punto
-  donde se cortó (típicamente algo del FOLLOW del no terminal en curso, o un
-  delimitador estructural fuerte como `puntoYComa` o `llaveC`), y continúa el
-  análisis desde ahí. Esto permite seguir buscando más errores en el resto del
-  archivo, al costo de que un error temprano puede arrastrar "ecos" (errores
-  en cascada) si la sincronización no fue la correcta — un trade-off inherente
-  al modo pánico, no un bug a resolver por completo.
-- Igual que en el léxico, si no hubo errores sintácticos se puede reusar la
-  idea de una salida tipo `[SinErrores]`; si los hubo, se listan todos al
-  final (o a medida que se detectan, si se decide informar en streaming como
-  hace hoy `ResultadoLexicoListener`).
+- **Recuperación (modo pánico) — implementada**: `error()` ya no lanza
+  excepción; agrega un `ErrorSintactico` a una lista interna (con el
+  `tokenActual` de ese momento, antes de tocarlo) y llama a `sincronizar()`.
+
+  **Conjunto de sincronización**: `{ puntoYComa, llaveA, llaveC, eof }` — son
+  justo los tokens que ya usan `listaSentencias()`/`listaMiembros()`/
+  `listaClases()`/`bloque()` para decidir si siguen o cortan, así que
+  sincronizar sobre ellos deja al parser en un punto donde esos bucles ya
+  saben qué hacer.
+
+  **El algoritmo, en dos pasos** — y el bug real que apareció al escribirlo
+  antes de implementarlo:
+
+  ```java
+  private void sincronizar() {
+      if (!actualEn(TOKENS_SINCRONIZACION)) {
+          avanzar();                              // token ofensivo: se descarta
+          while (!actualEn(TOKENS_SINCRONIZACION)) {
+              avanzar();
+          }
+      }
+      if (actualEs(TokenType.PUNTO_COMA)) {
+          avanzar();                              // el ";" delimitaba el problema: se consume
+      }
+      // llaveA / llaveC / eof: NO se consumen, los usan los bucles de arriba
+  }
+  ```
+
+  La primera versión de esta regla descartaba el token ofensivo *siempre*,
+  sin chequear antes si ya era de sincronización. Eso rompe en un caso común:
+
+  ```java
+  Foo x = new Foo;   // falta el "(...)" del constructor
+  int y = ;          // error independiente, en la sentencia siguiente
+  ```
+
+  Acá `new Foo` falla justo cuando el token que sigue ya es el `;` correcto
+  de esa sentencia. Descartarlo "porque es el ofensivo" y seguir buscando el
+  *próximo* `;`/`{`/`}`/eof se come de más — se traga entero `int y = ;` sin
+  darle nunca la oportunidad de fallar por su cuenta, y ese segundo error
+  desaparece. La corrección: si el ofensivo ya es de sincronización, no se
+  fuerza el descarte — se aplica directo el paso 2 (consumir si es `;`, dejar
+  intacto si es `{`/`}`/eof).
+
+  **Por qué siempre termina**: con la corrección, una llamada a
+  `sincronizar()` puede no avanzar ningún token (cuando el ofensivo ya es
+  `llaveA`/`llaveC`/`eof`). Eso no genera un loop: los bucles que usan esos
+  tokens como condición de corte (`listaSentencias`, `listaMiembros`,
+  `listaClases`, `bloque`) miran su propio FIRST *antes* de volver a invocar
+  la producción que falló, así que no la reintentan sobre el mismo token sin
+  avance. El desenrolle sin progreso real queda acotado por la profundidad
+  estática de la gramática (una constante), y `eof` en sí nunca se agota — el
+  léxico lo repite para siempre —, así que el análisis siempre termina.
+
+  **Trade-off aceptado, no un bug**: como cualquier modo pánico de un solo
+  token de sincronización, un error temprano puede arrastrar "ecos" (errores
+  en cascada) si la sincronización no fue la más ajustada al contexto real —
+  ver `TesterSintacticoModoPanico` para un caso donde un `;` faltante termina
+  generando tres reportes encadenados. Si el error ocurre sin ningún
+  `;`/`{`/`}` hasta el fin del archivo, cada nivel de anidamiento que no pudo
+  cerrar (sentencia, bloque, clase) agrega su propio eco apuntando al mismo
+  `eof` — tampoco se deduplica, es el mismo tipo de trade-off.
+- **Exposición**: no se imita el listener de streaming del léxico
+  (`ResultadoLexicoListener`) — se evaluó y se descartó a propósito. En vez de
+  eso, `AnalizadorSintactico.getErrores()` devuelve la lista completa
+  (inmutable) recién cuando `start()` termina. `ModuloPrincipalET2` la recorre
+  e imprime cada error con el mismo formato que antes
+  (`Error Sintáctico en línea N: ...` + `[Error:lexema|N]`); sólo imprime
+  `[SinErrores]` si tampoco hubo errores léxicos y la lista está vacía.
 
 ## Piezas que va a necesitar el diseño (a definir junto con la implementación)
 
-- `ErrorSintactico`: hoy existe como `RuntimeException` con línea, lexema del
-  token ofensivo, token encontrado (con nombre y lexema) y token esperado.
-  Falta llevarlo a una **clase de datos** análoga a `ErrorLexico` (que además
-  guarde la línea fuente) para reportar errores de esta etapa sin mezclarla con
-  `ErrorLexico`.
-- Un mecanismo de reporte análogo a `ResultadoLexicoListener` (o reuso de
-  alguna interfaz común) para que el Módulo Principal pueda recibir los
-  errores sintácticos igual que hoy recibe los léxicos, sin acoplar
-  `AnalizadorSintactico` a `System.out` directamente (mismo principio que
-  REQ-MP-02: toda salida por `System.out`, pero centralizada en la vista).
-  Todavía sin diseñar: hoy `AnalizadorSintacticoImpl` lanza `ErrorSintactico`
-  y `ModuloPrincipalET2` lo captura y lo imprime (un solo error por corrida).
+- `ErrorSintactico`: **resuelto** — ya es una clase de datos final, sin
+  herencia de excepción, mismo estilo que `ErrorLexico`. A diferencia de
+  `ErrorLexico`, **no** guarda línea fuente: `Token` no lleva columna, así que
+  no hay nada que subrayar con un `^` (misma limitación ya anotada arriba).
+- Un mecanismo de reporte análogo a `ResultadoLexicoListener`: **evaluado y
+  descartado a propósito**. El léxico informa "de a uno" porque procesa el
+  archivo en streaming; el sintáctico junta todo en una `List<ErrorSintactico>`
+  interna y la expone recién al terminar `start()` vía `getErrores()` — no
+  hace falta reportar en streaming porque no hay ninguna razón para que
+  `ModuloPrincipalET2` se entere de un error sintáctico antes de que termine
+  el análisis completo. Sigue pendiente el paso por un `AnalizadorHandler`
+  sintáctico (ya existe uno para el léxico en `Controller`, no para el
+  sintáctico) — eso sí queda fuera de alcance, el wiring en `ModuloPrincipalET2`
+  sigue siendo directo.
 - Un método por cada no terminal de la sección "Gramática LL(1) resultante" —
   **ya escrito** en `AnalizadorSintacticoImpl` (uno por no terminal, con el
   nombre pelado del no terminal en minúscula; ver "Estado actual del código"),
@@ -1948,25 +2006,39 @@ si se puede evitar, para poder reportar varios errores en una sola corrida.
     `sintCorrecto19/20.java` (postfijo en cadena binaria, paréntesis,
     referencia encadenada, ternario, `for`, y encadenado `a++--`) y
     `sintError43.java` (prefijo `++` fuera de alcance).
-  - **El Paso 5 queda completo**: `REQ-AS-005..014` implementados. Sigue
-    pendiente la recuperación en modo pánico (`REQ-AS-008`): hoy `error()`
-    lanza `ErrorSintactico` y corta en el primer error.
-- `ErrorSintactico` existe como `RuntimeException` con línea, lexema del token
-  ofensivo, encontrado y esperado. Falta la versión "clase de datos" con línea
-  fuente y el mecanismo de reporte tipo listener (ver "Piezas que va a
-  necesitar el diseño").
+  - **El Paso 5 queda completo**: `REQ-AS-005..014` implementados.
+  - **Recuperación en modo pánico (`REQ-AS-008`) ya implementada**: `error()`
+    ya no lanza `ErrorSintactico`, lo agrega a una lista interna y llama a
+    `sincronizar()`, que descarta tokens hasta `{ ; { } eof }` (consumiendo el
+    `;` si es ese, dejando `{`/`}`/eof intactos) — ver "Manejo de errores
+    sintácticos" para el algoritmo completo y el bug de diseño real que
+    apareció al validarlo antes de escribirlo (el token ofensivo no se puede
+    descartar a ciegas cuando ya es de sincronización, o se traga errores
+    independientes que vienen justo después).
+- `ErrorSintactico` ya es una **clase de datos final**, sin herencia de
+  excepción (línea, lexema, encontrado, esperado; sin línea fuente, `Token` no
+  lleva columna). `AnalizadorSintactico.getErrores()` expone la lista completa
+  recién al terminar `start()`.
 - `ModuloPrincipalET2` (en `View`) es el punto de entrada de la etapa 2: abre
   el fuente, arma `AnalizadorLexicoImpl` + `AnalizadorSintacticoImpl` (léxico
-  en modo *pull*) y corre `start()`. Si termina sin errores imprime
-  `[SinErrores]`; si atrapa un `ErrorSintactico` imprime una línea legible más
-  la etiqueta `[Error:<lexema>|<linea>]` (mismo formato que el error léxico de
-  `ModuloPrincipal`). Es un espejo de `ModuloPrincipal` (solo léxico) y no toca
+  en modo *pull*) y corre `start()`. Si no hubo errores léxicos ni sintácticos
+  imprime `[SinErrores]`; si no, recorre `sintactico.getErrores()` e imprime
+  cada uno con una línea legible más la etiqueta `[Error:<lexema>|<linea>]`
+  (mismo formato de antes, ahora repetido una vez por error en vez de una sola
+  vez por corrida). Es un espejo de `ModuloPrincipal` (solo léxico) y no toca
   la cadena de la etapa 1. El wiring se hace directo en la vista: el paso por
-  `AnalizadorHandler` y un listener sintáctico quedan pendientes.
+  un `AnalizadorHandler` sintáctico y un listener quedan pendientes (fuera de
+  alcance de REQ-AS-008).
 - Los testers `TesterSintacticoDeCasosSinErrores` / `TesterSintacticoDeCasosConErrores`
   (en `src/test/java`, recursos en `resources/sintactico/{sinErrores,conErrores}/`)
   corren contra `ModuloPrincipalET2`. 63 casos (20 sin error + 43 con error),
-  `OK (63 tests)`. Cobertura propia por extensión:
+  `OK (63 tests)`. Se suma `TesterSintacticoModoPanico` (3 casos, no
+  parametrizado, recursos en `resources/sintactico/panico/`): prueba lo que el
+  harness parametrizado no puede expresar (varios errores independientes en
+  una sola corrida y el caso límite sin ningún token de sincronización hasta
+  `eof`), con `@Test(timeout = ...)` como guardrail contra un futuro loop.
+  `OK (66 tests)` sintácticos; los 4 testers de esta etapa más los 2 del
+  léxico dan `OK (104 tests)`. Cobertura propia por extensión:
   - Lambda: `sintCorrecto05..07` y `09` (las cinco formas, contextos variados,
     anidadas/currificación, y currying con parámetro entre paréntesis en cada
     nivel) y `sintError05..12` y `18..24` (cuerpo entre llaves / varias
@@ -2025,8 +2097,14 @@ si se puede evitar, para poder reportar varios errores en una sola corrida.
     incremento de un `for` clásico), `sintCorrecto20` (encadenado `a++--` y
     `a----++`, caso positivo — ver "Postfijo `++`/`--`" sobre por qué no es
     error) y `sintError43` (prefijo `++a` fuera de alcance de `REQ-AS-014`).
+  - Modo pánico (`TesterSintacticoModoPanico`, no parametrizado, resources en
+    `resources/sintactico/panico/`): dos errores adyacentes donde el ofensivo
+    ya es de sincronización (el caso que expuso el bug de diseño, ver "Manejo
+    de errores sintácticos"), dos errores en métodos distintos con arrastre
+    real entre ellos, y el caso límite sin ningún token de sincronización
+    hasta `eof` (con `timeout` como guardrail).
 
-  Los 4 testers juntos (léxico + sintáctico) dan `OK (101 tests)`.
+  Los 5 testers juntos (léxico + sintáctico) dan `OK (104 tests)`.
 - `SIntaxis.md` solo tiene la introducción y notación (BNF, terminal/no
   terminal), no la gramática en sí; la gramática de partida y su versión ya
   transformada a LL(1) viven por ahora en la sección "Gramática" de este
@@ -2097,9 +2175,14 @@ si se puede evitar, para poder reportar varios errores en una sola corrida.
 3. Hecho — `nextToken()` implementado en `AnalizadorLexicoImpl` en modo *pull*
    sobre el mismo autómata que `startAnalizar()`, sin tocar el camino de la
    etapa 1. `src/Model` compila entero.
-4. Parcial — `ModuloPrincipalET2` ya corre el sintáctico y reporta el primer
-   error como `[Error:<lexema>|<linea>]` (los testers sintácticos pasan). Falta:
-   recuperación en modo pánico (`REQ-AS-008`, hoy `error()` corta en el primer
-   error), la versión "clase de datos" de `ErrorSintactico` con línea fuente, y
-   un mecanismo de reporte análogo a `ResultadoLexicoListener` que saque el
-   wiring de la vista y lo pase por `AnalizadorHandler`.
+4. Hecho — `ModuloPrincipalET2` corre el sintáctico y reporta **todos** los
+   errores encontrados como `[Error:<lexema>|<linea>]`, uno por cada entrada de
+   `sintactico.getErrores()` (los testers sintácticos, incluido
+   `TesterSintacticoModoPanico`, pasan). La recuperación en modo pánico
+   (`REQ-AS-008`) y la versión "clase de datos" de `ErrorSintactico` están
+   implementadas (ver "Manejo de errores sintácticos" y "Piezas que va a
+   necesitar el diseño"); se evaluó y descartó a propósito imitar el listener
+   de streaming del léxico (`ResultadoLexicoListener`), se prefirió juntar
+   todo en una lista. Sigue pendiente, fuera de alcance de esta extensión, el
+   wiring de `ModuloPrincipalET2` a través de un `AnalizadorHandler` sintáctico
+   (ya existe uno para el léxico en `Controller`, no para el sintáctico).

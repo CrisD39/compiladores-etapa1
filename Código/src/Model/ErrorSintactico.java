@@ -1,11 +1,11 @@
 package Model;
 
-// Reporte de un error sintáctico (análogo a ErrorLexico, REQ-AS-003).
-// Por ahora es una excepción con los datos mínimos: línea, lexema del token
-// ofensivo, qué se encontró y qué se esperaba. La versión "clase de datos +
-// listener" (como ResultadoLexicoListener para el léxico) y la recuperación en
-// modo pánico (REQ-AS-008) quedan pendientes: hoy el primer error corta el análisis.
-public class ErrorSintactico extends RuntimeException {
+// Reporte de un error sintáctico (análogo a ErrorLexico, REQ-AS-003). Clase de
+// datos final, sin herencia de excepción: AnalizadorSintacticoImpl ya no lanza
+// estos objetos, los acumula en una lista (ver error()/sincronizar(), REQ-AS-008)
+// para poder reportar más de uno por corrida. Sin lineaFuente (a diferencia de
+// ErrorLexico) porque Token no lleva columna, así que no hay nada que subrayar.
+public final class ErrorSintactico {
 
     private final int linea;
     private final String lexema;
@@ -13,8 +13,6 @@ public class ErrorSintactico extends RuntimeException {
     private final String esperado;
 
     public ErrorSintactico(int linea, String lexema, String encontrado, String esperado) {
-        super("Error sintáctico en línea " + linea + ": se esperaba " + esperado
-                + " y se encontró " + encontrado + ".");
         this.linea = linea;
         this.lexema = lexema;
         this.encontrado = encontrado;

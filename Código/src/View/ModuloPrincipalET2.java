@@ -13,16 +13,16 @@ import Model.Token;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.util.List;
 
 // Módulo Principal de la etapa 2: corre el analizador SINTÁCTICO sobre el fuente.
 // Es el espejo de ModuloPrincipal (que es solo léxico); se mantiene aparte para
 // no tocar la cadena de la etapa 1. El léxico se reusa en modo pull (nextToken()).
 //
 // Pendientes (ver Documentación/analizador_sintactico.md):
-//  - Recuperación en modo pánico (REQ-AS-008): hoy corta y reporta el primer
-//    error sintáctico.
-//  - Mecanismo de reporte tipo listener y paso por AnalizadorHandler; acá el
-//    wiring (abrir archivo, armar léxico + sintáctico) se hace directo.
+//  - Paso por un AnalizadorHandler sintáctico (ya existe uno para el léxico en
+//    Controller, no para el sintáctico) y reporte vía listener; acá el wiring
+//    (abrir archivo, armar léxico + sintáctico) se hace directo.
 public final class ModuloPrincipalET2 implements ResultadoLexicoListener {
 
     private boolean huboErroresLexicos = false;
@@ -50,11 +50,14 @@ public final class ModuloPrincipalET2 implements ResultadoLexicoListener {
 
             sintactico.start();
 
-            if (!huboErroresLexicos) {
+            List<ErrorSintactico> erroresSintacticos = sintactico.getErrores();
+            for (ErrorSintactico error : erroresSintacticos) {
+                reportarError(error);
+            }
+
+            if (!huboErroresLexicos && erroresSintacticos.isEmpty()) {
                 System.out.println("[SinErrores]");
             }
-        } catch (ErrorSintactico e) {
-            reportarError(e);
         } catch (UncheckedIOException e) {
             System.out.println("No se pudo leer el archivo fuente: " + rutaArchivo);
         } finally {

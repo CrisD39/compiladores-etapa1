@@ -1,6 +1,9 @@
 package Model;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -104,17 +107,27 @@ import java.util.Set;
  * gratis. Sin tokens nuevos en el léxico: las llaves ya existían como
  * {@code LLAVE_A}/{@code LLAVE_C} para {@code <Bloque>}.
  *
+ * <p>El ternario ({@code REQ-AS-013}) y el postfijo {@code ++}/{@code --}
+ * ({@code REQ-AS-014}) también están implementados (ver "Precedencia del
+ * operador ternario" y "Postfijo {@code ++}/{@code --}" en el documento).
+ *
+ * <p>La recuperación en modo pánico ({@code REQ-AS-008}) también está
+ * implementada: {@link #error} ya no lanza {@link ErrorSintactico}, lo agrega a
+ * una lista interna y llama a {@link #sincronizar()}, que descarta tokens hasta
+ * encontrar uno de sincronización (punto y coma, llave de apertura o de cierre,
+ * o EOF) antes de devolver el control, para poder seguir el análisis y reportar
+ * más de un error por corrida. {@link #getErrores()} expone la lista completa
+ * recién al terminar {@link #start()} — no hay reporte en streaming tipo
+ * {@code ResultadoLexicoListener}, se decidió juntar todo de una.
+ *
  * <p>Pendientes (ver el documento de diseño):
  * <ul>
- *   <li>Extensiones {@code REQ-AS-013..014} (ternario, {@code ++}/{@code --}):
- *       todavía no están en la gramática ni acá.</li>
- *   <li>{@code REQ-AS-008}: recuperación en modo pánico. Hoy {@link #error} lanza
- *       {@link ErrorSintactico} y se corta en el primer error.</li>
- *   <li>Reporte vía listener (como {@code ResultadoLexicoListener}) en vez de
- *       excepción, para no acoplar el analizador a quien consume los errores.</li>
  *   <li>Dos conflictos se resuelven por convención en el método, no en la
  *       gramática: {@code else} colgante ({@link #elseOpcional}) y {@code [} tras
  *       dimensiones ({@link #dimensionesConTamanioOpc}).</li>
+ *   <li>El wiring completo vía un {@code AnalizadorHandler} sintáctico (ya
+ *       existe uno para el léxico en {@code Controller}) queda pendiente; hoy
+ *       {@code ModuloPrincipalET2} arma el léxico y el sintáctico directo.</li>
  * </ul>
  */
 public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
@@ -194,15 +207,28 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
             TokenType.PR_THIS, TokenType.LIT_STRING, TokenType.ID_MET_VAR,
             TokenType.PR_NEW, TokenType.ID_CLASE, TokenType.PAR_A);
 
+    // No es un FIRST: es el conjunto de sincronización del modo pánico (REQ-AS-008).
+    // Son justo los tokens que ya usan listaSentencias()/listaMiembros()/listaClases()/
+    // bloque() para decidir si siguen o cortan — ver sincronizar().
+    private static final Set<TokenType> TOKENS_SINCRONIZACION = EnumSet.of(
+            TokenType.PUNTO_COMA, TokenType.LLAVE_A, TokenType.LLAVE_C, TokenType.EOF);
+
     // ------------------------------------------------------------------
     // Infraestructura: start / match / lookahead / error
     // ------------------------------------------------------------------
+
+    private final List<ErrorSintactico> errores = new ArrayList<>();
 
     @Override
     public void start() {
         tokenActual = lexico.nextToken();
         inicial();
         // REQ-AS-004: <Inicial> ya consume el eof con su match(EOF) final.
+    }
+
+    @Override
+    public List<ErrorSintactico> getErrores() {
+        return Collections.unmodifiableList(errores);
     }
 
     /** Consume {@code tokenActual} si es del tipo esperado; si no, error sintáctico. */
@@ -227,11 +253,44 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
         return conjunto.contains(tokenActual.getTipo());
     }
 
+    /**
+     * Reporta el error (lo agrega a {@link #errores}, con el {@code tokenActual}
+     * de este momento, ANTES de que {@link #sincronizar()} lo mueva) y recupera en
+     * modo pánico (REQ-AS-008) para poder seguir el análisis y encontrar más de
+     * un error por corrida.
+     */
     private void error(String esperado) {
         String encontrado = tokenActual.getTipo().getNombre()
                 + " (\"" + tokenActual.getLexema() + "\")";
-        throw new ErrorSintactico(tokenActual.getLinea(), tokenActual.getLexema(), encontrado, esperado);
-        // TODO REQ-AS-008: reportar y sincronizar (modo pánico) en vez de abortar.
+        errores.add(new ErrorSintactico(tokenActual.getLinea(), tokenActual.getLexema(), encontrado, esperado));
+        sincronizar();
+    }
+
+    /**
+     * Modo pánico (REQ-AS-008): descarta tokens hasta dejar {@code tokenActual}
+     * en un punto seguro para retomar. Si el token ofensivo YA es de
+     * sincronización (p. ej. "Foo x = new Foo;" seguido de otro error: el ";"
+     * que sigue ya estaba bien puesto) no se descarta de más — si no, un error
+     * independiente justo a continuación quedaría tragado por esta recuperación.
+     * El ";" se consume (ya delimitó el problema); "{"/"}"/EOF se dejan intactos,
+     * porque son los que ya usan listaSentencias()/listaMiembros()/listaClases()/
+     * bloque() para decidir si siguen o cortan — consumirlos los dejaría ciegos.
+     * Termina siempre: el único caso sin avance es cuando el ofensivo ya es
+     * "{"/"}"/EOF, y ahí los bucles de arriba no vuelven a invocar la producción
+     * que falló (su propio chequeo de FIRST los detiene antes), así que el
+     * desenrolle sin progreso real queda acotado por la profundidad de la
+     * gramática; EOF, por su parte, nunca se agota (el léxico lo repite siempre).
+     */
+    private void sincronizar() {
+        if (!actualEn(TOKENS_SINCRONIZACION)) {
+            avanzar();
+            while (!actualEn(TOKENS_SINCRONIZACION)) {
+                avanzar();
+            }
+        }
+        if (actualEs(TokenType.PUNTO_COMA)) {
+            avanzar();
+        }
     }
 
     // ==================================================================
