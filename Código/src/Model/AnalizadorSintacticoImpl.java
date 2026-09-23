@@ -120,15 +120,15 @@ import java.util.Set;
  * recién al terminar {@link #start()} — no hay reporte en streaming tipo
  * {@code ResultadoLexicoListener}, se decidió juntar todo de una.
  *
- * <p>Pendientes (ver el documento de diseño):
- * <ul>
- *   <li>Dos conflictos se resuelven por convención en el método, no en la
- *       gramática: {@code else} colgante ({@link #elseOpcional}) y {@code [} tras
- *       dimensiones ({@link #dimensionesConTamanioOpc}).</li>
- *   <li>El wiring completo vía un {@code AnalizadorHandler} sintáctico (ya
- *       existe uno para el léxico en {@code Controller}) queda pendiente; hoy
- *       {@code ModuloPrincipalET2} arma el léxico y el sintáctico directo.</li>
- * </ul>
+ * <p>El wiring completo vía {@code Controller.AnalizadorSintacticoHandler} /
+ * {@code AnalizadorSintacticoHandlerImpl} también está hecho, análogo a
+ * {@code AnalizadorHandler}/{@code AnalizadorHandlerImpl} para el léxico:
+ * {@code ModuloPrincipalET2} ya no arma el léxico y el sintáctico directo.
+ *
+ * <p>Pendiente (ver el documento de diseño): dos conflictos se resuelven por
+ * convención en el método, no en la gramática: {@code else} colgante
+ * ({@link #elseOpcional}) y {@code [} tras dimensiones
+ * ({@link #dimensionesConTamanioOpc}).
  */
 public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
 

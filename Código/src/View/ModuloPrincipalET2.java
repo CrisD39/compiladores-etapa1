@@ -1,14 +1,10 @@
 package View;
 
-import Model.AnalizadorLexico;
-import Model.AnalizadorLexicoImpl;
-import Model.AnalizadorSintactico;
-import Model.AnalizadorSintacticoImpl;
+import Controller.AnalizadorSintacticoHandler;
+import Controller.AnalizadorSintacticoHandlerImpl;
 import Model.ErrorLexico;
 import Model.ErrorSintactico;
 import Model.ResultadoLexicoListener;
-import Model.SourceManager;
-import Model.SourceManagerMejorado;
 import Model.Token;
 
 import java.io.IOException;
@@ -17,12 +13,9 @@ import java.util.List;
 
 // Módulo Principal de la etapa 2: corre el analizador SINTÁCTICO sobre el fuente.
 // Es el espejo de ModuloPrincipal (que es solo léxico); se mantiene aparte para
-// no tocar la cadena de la etapa 1. El léxico se reusa en modo pull (nextToken()).
-//
-// Pendientes (ver Documentación/analizador_sintactico.md):
-//  - Paso por un AnalizadorHandler sintáctico (ya existe uno para el léxico en
-//    Controller, no para el sintáctico) y reporte vía listener; acá el wiring
-//    (abrir archivo, armar léxico + sintáctico) se hace directo.
+// no tocar la cadena de la etapa 1. El wiring (abrir archivo, armar léxico +
+// sintáctico) vive en AnalizadorSintacticoHandlerImpl (Controller), análogo a
+// AnalizadorHandlerImpl para el léxico: acá sólo queda la presentación.
 public final class ModuloPrincipalET2 implements ResultadoLexicoListener {
 
     private boolean huboErroresLexicos = false;
@@ -36,21 +29,10 @@ public final class ModuloPrincipalET2 implements ResultadoLexicoListener {
     }
 
     private void ejecutar(String rutaArchivo) {
-        SourceManager sourceManager = new SourceManagerMejorado();
+        AnalizadorSintacticoHandler handler = new AnalizadorSintacticoHandlerImpl();
         try {
-            sourceManager.open(rutaArchivo);
-        } catch (IOException e) {
-            System.out.println("No se pudo abrir el archivo fuente: " + rutaArchivo);
-            return;
-        }
+            List<ErrorSintactico> erroresSintacticos = handler.analizar(rutaArchivo, this);
 
-        try {
-            AnalizadorLexico lexico = new AnalizadorLexicoImpl(sourceManager, this);
-            AnalizadorSintactico sintactico = new AnalizadorSintacticoImpl(lexico);
-
-            sintactico.start();
-
-            List<ErrorSintactico> erroresSintacticos = sintactico.getErrores();
             for (ErrorSintactico error : erroresSintacticos) {
                 reportarError(error);
             }
@@ -58,14 +40,10 @@ public final class ModuloPrincipalET2 implements ResultadoLexicoListener {
             if (!huboErroresLexicos && erroresSintacticos.isEmpty()) {
                 System.out.println("[SinErrores]");
             }
+        } catch (IOException e) {
+            System.out.println("No se pudo abrir el archivo fuente: " + rutaArchivo);
         } catch (UncheckedIOException e) {
             System.out.println("No se pudo leer el archivo fuente: " + rutaArchivo);
-        } finally {
-            try {
-                sourceManager.close();
-            } catch (IOException ignored) {
-                // cerrar el fuente no debe tapar el resultado del análisis
-            }
         }
     }
 

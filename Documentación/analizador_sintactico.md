@@ -71,9 +71,17 @@ no terminal, cuáles de estas dos causas aplican:
   más alternativas comparte algún token. Ahí, al ver ese token como
   lookahead, el parser no puede decidir con un solo token de anticipación cuál
   alternativa tomar — es la otra forma (además de la recursión izquierda) de
-  romper LL(1). Queda pendiente de confirmar contra el FIRST real de cada
-  alternativa (`<Miembro>` y `<Sentencia>` son los primeros candidatos a
-  revisar, según ya señala la nota de la sección "Gramática").
+  romper LL(1). **Confirmado** contra el FIRST real de `<Miembro>` y
+  `<Sentencia>` (los candidatos que señalaba esta misma nota): en los dos
+  casos el FIRST derivado a mano coincide token por token con
+  `PRIMEROS_MIEMBRO` / `PRIMEROS_SENTENCIA` / `PRIMEROS_EXPRESION` en el
+  código, y las alternativas de cada uno son pairwise disjuntas — un solo
+  token de lookahead alcanza siempre, sin ningún FIRST/FIRST oculto. Único
+  detalle a notar (no es un conflicto, es la técnica correcta): `idClase`
+  pertenece a FIRST(`<Expresion>`) pero en `sentencia()` la rama
+  `<Sentencia> ::= idClase <SentIdClase>` ya lo intercepta antes por el orden
+  del `if`/`else if`, así que nunca llega a activar por error la rama de
+  `<Expresion> ;`.
 
 Técnica a aplicar por cada causa:
 
@@ -1866,10 +1874,17 @@ si se puede evitar, para poder reportar varios errores en una sola corrida.
   interna y la expone recién al terminar `start()` vía `getErrores()` — no
   hace falta reportar en streaming porque no hay ninguna razón para que
   `ModuloPrincipalET2` se entere de un error sintáctico antes de que termine
-  el análisis completo. Sigue pendiente el paso por un `AnalizadorHandler`
-  sintáctico (ya existe uno para el léxico en `Controller`, no para el
-  sintáctico) — eso sí queda fuera de alcance, el wiring en `ModuloPrincipalET2`
-  sigue siendo directo.
+  el análisis completo.
+- El paso por un `AnalizadorHandler` sintáctico: **resuelto** —
+  `AnalizadorSintacticoHandler`/`AnalizadorSintacticoHandlerImpl` (en
+  `Controller`), análogo a `AnalizadorHandler`/`AnalizadorHandlerImpl` para el
+  léxico. Misma forma (abre el fuente, arma léxico + sintáctico, corre y
+  cierra en un `finally`), con una diferencia: en vez de `void`, devuelve
+  `List<ErrorSintactico>` (el resultado de `sintactico.getErrores()`), porque
+  acá no hay un listener sintáctico al que reportarle — es la misma decisión
+  del punto anterior. `ModuloPrincipalET2` ya no arma `SourceManager` ni los
+  analizadores directo: sólo llama a `handler.analizar(ruta, this)` y
+  presenta el resultado.
 - Un método por cada no terminal de la sección "Gramática LL(1) resultante" —
   **ya escrito** en `AnalizadorSintacticoImpl` (uno por no terminal, con el
   nombre pelado del no terminal en minúscula; ver "Estado actual del código"),
@@ -2019,16 +2034,16 @@ si se puede evitar, para poder reportar varios errores en una sola corrida.
   excepción (línea, lexema, encontrado, esperado; sin línea fuente, `Token` no
   lleva columna). `AnalizadorSintactico.getErrores()` expone la lista completa
   recién al terminar `start()`.
-- `ModuloPrincipalET2` (en `View`) es el punto de entrada de la etapa 2: abre
-  el fuente, arma `AnalizadorLexicoImpl` + `AnalizadorSintacticoImpl` (léxico
-  en modo *pull*) y corre `start()`. Si no hubo errores léxicos ni sintácticos
-  imprime `[SinErrores]`; si no, recorre `sintactico.getErrores()` e imprime
-  cada uno con una línea legible más la etiqueta `[Error:<lexema>|<linea>]`
-  (mismo formato de antes, ahora repetido una vez por error en vez de una sola
-  vez por corrida). Es un espejo de `ModuloPrincipal` (solo léxico) y no toca
-  la cadena de la etapa 1. El wiring se hace directo en la vista: el paso por
-  un `AnalizadorHandler` sintáctico y un listener quedan pendientes (fuera de
-  alcance de REQ-AS-008).
+- `ModuloPrincipalET2` (en `View`) es el punto de entrada de la etapa 2: llama
+  a `AnalizadorSintacticoHandler.analizar(ruta, this)` (en `Controller`, ver
+  más arriba) y presenta el resultado — ya no arma `SourceManager` ni los
+  analizadores directo, ese wiring se movió al handler. Si no hubo errores
+  léxicos ni sintácticos imprime `[SinErrores]`; si no, recorre la
+  `List<ErrorSintactico>` que devuelve `analizar()` e imprime cada uno con una
+  línea legible más la etiqueta `[Error:<lexema>|<linea>]` (mismo formato de
+  antes, ahora repetido una vez por error en vez de una sola vez por corrida).
+  Es un espejo de `ModuloPrincipal` (solo léxico), que sigue el mismo patrón
+  con `AnalizadorHandler`/`AnalizadorHandlerImpl`.
 - Los testers `TesterSintacticoDeCasosSinErrores` / `TesterSintacticoDeCasosConErrores`
   (en `src/test/java`, recursos en `resources/sintactico/{sinErrores,conErrores}/`)
   corren contra `ModuloPrincipalET2`. 63 casos (20 sin error + 43 con error),
@@ -2183,6 +2198,9 @@ si se puede evitar, para poder reportar varios errores en una sola corrida.
    implementadas (ver "Manejo de errores sintácticos" y "Piezas que va a
    necesitar el diseño"); se evaluó y descartó a propósito imitar el listener
    de streaming del léxico (`ResultadoLexicoListener`), se prefirió juntar
-   todo en una lista. Sigue pendiente, fuera de alcance de esta extensión, el
-   wiring de `ModuloPrincipalET2` a través de un `AnalizadorHandler` sintáctico
-   (ya existe uno para el léxico en `Controller`, no para el sintáctico).
+   todo en una lista. El wiring vía `AnalizadorSintacticoHandler` /
+   `AnalizadorSintacticoHandlerImpl` (en `Controller`, análogo a
+   `AnalizadorHandler`/`AnalizadorHandlerImpl` para el léxico) también está
+   hecho: `ModuloPrincipalET2` ya no arma `SourceManager` ni los analizadores
+   directo, sólo llama a `handler.analizar(ruta, this)`. No queda ningún
+   pendiente explícito de esta lista.
