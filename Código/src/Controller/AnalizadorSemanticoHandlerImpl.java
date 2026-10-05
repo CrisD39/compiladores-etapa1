@@ -4,19 +4,17 @@ import Model.AnalizadorLexico;
 import Model.AnalizadorLexicoImpl;
 import Model.AnalizadorSintactico;
 import Model.AnalizadorSintacticoImpl;
-import Model.ErrorSintactico;
 import Model.ResultadoLexicoListener;
 import Model.SourceManager;
 import Model.SourceManagerMejorado;
 import Model.TablaSimbolos;
 
 import java.io.IOException;
-import java.util.List;
 
-public class AnalizadorSintacticoHandlerImpl implements AnalizadorSintacticoHandler {
+public class AnalizadorSemanticoHandlerImpl implements AnalizadorSemanticoHandler {
 
     @Override
-    public List<ErrorSintactico> analizar(String rutaArchivo, ResultadoLexicoListener listener) throws IOException {
+    public ResultadoAnalisisSemantico analizar(String rutaArchivo, ResultadoLexicoListener listener) throws IOException {
         SourceManager sourceManager = new SourceManagerMejorado();
         sourceManager.open(rutaArchivo);
         try {
@@ -24,7 +22,11 @@ public class AnalizadorSintacticoHandlerImpl implements AnalizadorSintacticoHand
             TablaSimbolos tablaSimbolos = new TablaSimbolos();
             AnalizadorSintactico sintactico = new AnalizadorSintacticoImpl(lexico, tablaSimbolos);
             sintactico.start();
-            return sintactico.getErrores();
+            // Chequeo de corrección (ver TablaSimbolos.consolidar()): corre
+            // siempre, aun si hubo errores sintácticos -- opera sobre lo que
+            // efectivamente se llegó a registrar en la tabla.
+            tablaSimbolos.consolidar();
+            return new ResultadoAnalisisSemantico(sintactico.getErrores(), tablaSimbolos.getErrores());
         } finally {
             try {
                 sourceManager.close();

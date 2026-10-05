@@ -1,6 +1,6 @@
 package test.java;
 
-import View.ModuloPrincipalET2;
+import View.ModuloPrincipalET3;
 
 import java.io.*;
 import java.util.ArrayList;
@@ -16,18 +16,18 @@ import org.junit.runners.Parameterized;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 
-// Gemelo sintactico de TesterDeCasosSinErrores (que es lexico): misma mecanica
+// Gemelo semántico de TesterSintacticoDeCasosSinErrores: misma mecanica
 // (parametrizado sobre los archivos de una carpeta, captura de System.out,
-// bandera de impresion), pero sobre casos del analizador sintactico y contra su
-// propia carpeta de recursos. No compara token por token: para el sintactico
-// alcanza con verificar que la corrida termine informando [SinErrores].
+// bandera de impresion), pero sobre casos del chequeo semántico de
+// declaraciones (ModuloPrincipalET3) y contra su propia carpeta de recursos.
+// Alcanza con verificar que la corrida termine informando [SinErrores].
 @RunWith(Parameterized.class)
-public class TesterSintacticoDeCasosSinErrores {
+public class TesterSemanticoDeCasosSinErrores {
 
     private static final String MSG_EXITO = "[SinErrores]";
-    private static final String TEST_FILES_DIRECTORY_PATH = "resources/sintactico/sinErrores/";
+    private static final String TEST_FILES_DIRECTORY_PATH = "resources/semantico/sinErrores/";
 
-    private static final ModuloPrincipalET2 init = null;
+    private static final ModuloPrincipalET3 init = null;
 
     private final ByteArrayOutputStream outContent = new ByteArrayOutputStream();
     private final PrintStream originalOut = System.out;
@@ -37,7 +37,7 @@ public class TesterSintacticoDeCasosSinErrores {
 
     private final String input;
 
-    public TesterSintacticoDeCasosSinErrores(String input) {
+    public TesterSemanticoDeCasosSinErrores(String input) {
         this.input = input;
     }
 

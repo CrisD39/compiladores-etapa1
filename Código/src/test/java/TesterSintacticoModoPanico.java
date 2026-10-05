@@ -1,9 +1,9 @@
 package test.java;
 
+import View.ModuloPrincipalET2;
+
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
-
-import View.ModuloPrincipalET2;
 
 import org.junit.After;
 import org.junit.Before;
@@ -42,14 +42,18 @@ public class TesterSintacticoModoPanico {
     // Caso que expuso el bug de diseño durante la validación: "new Foo;" falla
     // justo cuando el token que sigue ya es un ";" de sincronización. Si
     // sincronizar() lo descartara de más, el error independiente de la
-    // siguiente sentencia ("int y = ;") quedaría tragado.
+    // siguiente sentencia ("int y = ;") quedaría tragado. Ese ";" consumido
+    // por la recuperación no vuelve a exigirlo el match(PUNTO_COMA) de cierre
+    // de la declaración anterior (matchCierre, REQ-AS-008): el análisis
+    // retoma "int y = ;" como sentencia nueva, y ahí expresionBasica() reporta
+    // el segundo error apuntando al ";" que realmente le falta la expresión.
     @Test(timeout = 5000)
     public void dosErroresAdyacentesSeReportanLosDos() {
         ModuloPrincipalET2.main(new String[]{ DIR + "panicoDosErroresAdyacentes.java" });
         String salida = capturar();
         assertThat(salida, allOf(
                 containsString("[Error:;|8]"),
-                containsString("[Error:int|9]")));
+                containsString("[Error:;|9]")));
     }
 
     // Un método sin ";" de cierre (recupera cruzando el límite del "}") y otro
@@ -75,6 +79,24 @@ public class TesterSintacticoModoPanico {
         String salida = capturar();
         assertThat(salida, containsString("[Error:$|8]"));
         assertThat(salida, not(containsString("[SinErrores]")));
+    }
+
+    // Caso que distingue "el ; delimita un error independiente que sigue"
+    // (dosErroresAdyacentesSeReportanLosDos, arriba) de "el ; es el mismo que
+    // la producción en curso todavía necesita consumir": cuando la expresión
+    // rota termina justo ANTES del ";" que la propia producción (<VarLocal>
+    // ";", <Sentencia> ::= <Expresion> ";", <RestoDeclLocal>, ...) necesita
+    // para su propio cierre, sincronizar() igual se lo come -- pero acá es EL
+    // MISMO error, no uno nuevo. matchCierre() (REQ-AS-008) sabe que ese ";"
+    // ya fue consumido por la recuperación y no lo vuelve a exigir, evitando
+    // el eco fantasma que antes caía sobre "int y;", código perfectamente
+    // válido. Mismo patrón que sintError17.java ("int x = ;").
+    @Test(timeout = 5000)
+    public void expresionIncompletaAntesDelPuntoYComaNoDuplicaElError() {
+        ModuloPrincipalET2.main(new String[]{ DIR + "panicoExpresionIncompletaEcoFantasma.java" });
+        String salida = capturar();
+        assertThat(salida, containsString("[Error:;|15]"));
+        assertThat(salida, not(containsString("[Error:int|16]")));
     }
 
     private String capturar() {

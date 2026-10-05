@@ -6,130 +6,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 
-/**
- * Analizador sintáctico descendente recursivo predictivo (LL(1)) para MiniJava.
- *
- * <p>Es la traducción mecánica de la gramática de la sección
- * "Gramática LL(1) resultante" de {@code Documentación/analizador_sintactico.md}:
- * un método privado por cada no terminal, con el mismo nombre en minúscula
- * (los que chocan con palabras reservadas de Java se prefijan con
- * {@code sentencia...}: {@code sentenciaIf}, {@code sentenciaWhile},
- * {@code sentenciaReturn}). Cada método:
- * <ul>
- *   <li>llama a {@link #match(TokenType)} por cada terminal de la producción,</li>
- *   <li>llama al método del no terminal por cada no terminal,</li>
- *   <li>elige alternativa mirando {@code tokenActual} contra el conjunto FIRST
- *       de cada rama; el caso {@code ϵ} es el {@code else} que no hace nada.</li>
- * </ul>
- *
- * <p>La expresión lambda ({@code REQ-AS-005}) ya está implementada según la
- * sección "Gramática Expandida (Logros)" del documento: se sumó el token
- * {@code ARROW} ({@code ->}) al léxico y {@code <Operando>} quedó reescrito con
- * la factorización {@code <TrasId>} / {@code <TrasParen>} / {@code <TrasParenId>}
- * / {@code <DecidirTrasCierre>} / {@code <ListaIdLambda>}, que inlinea
- * {@code <Referencia>}, {@code <Primario>} y {@code <ExpresionParentizada>}. El
- * parser sigue decidiendo sólo con FIRST y un token de lookahead ({@code ->} se
- * distingue por su terminal). La bifurcación por {@code idMetVar} en
- * {@code <TrasParenId>} además rechaza en el propio sintáctico casos como
- * {@code (a + b) -> e} (no hace falta diferirlo a una etapa semántica): ningún
- * operando que no arranque con {@code idMetVar} puede ser un parámetro válido.
- *
- * <p>La variable local clásica ({@code REQ-AS-006}) también está implementada:
- * {@code <Sentencia>} suma {@code <TipoPrimitivo>} / {@code idGen} / {@code idClase}
- * como arranque de {@code int x, y, z = 10;} (sin {@code var}), con
- * {@code <SentIdClase>} factorizando el prefijo {@code idClase} (declaración vs.
- * llamada estática) por el token que sigue. La forma con {@code var}
- * ({@code <VarLocal>}) queda intacta.
- *
- * <p>La visibilidad de miembros ({@code REQ-AS-007}) también está implementada:
- * se sumó el token {@code PR_PRIVATE} (palabra clave {@code private}) al léxico
- * y {@code <Miembro>} quedó reescrito como {@code <Visibilidad> <CuerpoMiembro>}
- * ({@code visibilidad()} / {@code cuerpoMiembro()}). Como {@code public} deja de
- * ser el token que marca al constructor, su prefijo {@code idClase} pasa a
- * compartirse con el de un atributo/método de tipo clase y se factoriza en
- * profundidad en {@code trasIdClaseMiembro()} (misma técnica que
- * {@code <SentIdClase>}), mirando si tras {@code idClase} viene {@code (}
- * (constructor) o cualquier otra cosa (tipo clase).
- *
- * <p>El {@code for} ({@code REQ-AS-009}) también está implementado, en sus
- * dos formas (clásico con {@code ;} y for-each con
- * {@code :}): se sumó el token {@code PR_FOR} al léxico (el {@code :} ya
- * existía como {@code DOS_PUNTOS}) y {@code sentenciaFor()} llama a
- * {@code clausulasFor()}, que factoriza el prefijo compartido entre ambas
- * formas ({@code <Tipo> idMetVar}) igual que el resto del parser: consume el
- * tipo y el nombre, y decide con **un** token más ({@code :} vs. {@code =}/{@code ;})
- * en {@code trasIdForTipo()}. El prefijo {@code idClase} vuelve a chocar con
- * una llamada estática como inicialización (p. ej. {@code Fabrica.reset()}) y
- * se resuelve en {@code trasIdClaseFor()}, misma técnica que
- * {@code <SentIdClase>}/{@code trasIdClaseMiembro()}. Las tres secciones
- * (init/cond/act) son opcionales, como en Java ({@code for (;;)}); el cuerpo
- * es {@code <Sentencia>}, no {@code <Bloque>}, igual que {@code <If>}/
- * {@code <While>}. El for-each no admite {@code var} (sólo tipo explícito).
- *
- * <p>Los genéricos anidados y la notación diamante ({@code REQ-AS-010})
- * también están implementados: {@code instanciadoOParametrico()} pasó a
- * recursar en su rama {@code idClase} (llama a {@code tipoGenericoOpcional()}),
- * lo que habilita el anidado (p. ej. {@code Caja<Lista<Item>>}) en todos los
- * lugares que ya usaban {@code <TipoGenericoOpcional>} sin tocarlos. El
- * diamante ({@code new Foo<>()}) es aparte, sólo válido al instanciar: se
- * sumaron {@code tipoGenericoOpcionalNew()} / {@code diamanteOTipo()} (el
- * interior puede ser vacío) y {@code restoNew()} los usa en vez de
- * {@code tipoGenericoOpcional()}; el resto de contextos de tipo sigue exigiendo
- * un argumento real, así que {@code Foo<> x;} sigue siendo error sintáctico.
- * El cierre {@code >>} de un genérico anidado tokeniza como dos {@code OP_MAYOR}
- * sueltos ({@code estadoMayor()} sólo combina con {@code =}), así que no hizo
- * falta ningún cambio en el léxico.
- *
- * <p>Los inicializadores de atributo ({@code REQ-AS-011}) también están
- * implementados: {@code <RestoMiembro>} suma
- * una tercera rama {@code <OperadorAsignacion> <ExpresionCompuesta> ;} (p. ej.
- * {@code int x = 5;}), con FIRST disjunto de las otras dos ({@code ;} / {@code (}
- * / {@code =}) — no hizo falta factorizar nada nuevo, es la primera extensión
- * de esta lista sin conflicto LL(1) que resolver. Ya cubre atributos de
- * arreglo con inicializador {@code new} (p. ej. {@code int[] arr = new int[5];}),
- * porque {@code <DimensionesOpcionales>} y {@code <ExpresionCompuesta>} ya
- * existían; lo que falta ({@code REQ-AS-012}) es el inicializador entre llaves
- * ({@code int[] arr = {1, 2, 3};}). Nota de alcance: {@code static} en esta
- * gramática sigue produciendo sólo métodos, nunca atributos (no forma parte de
- * este requerimiento).
- *
- * <p>El inicializador de arreglo entre llaves ({@code REQ-AS-012}) también
- * está implementado, sólo al construir con {@code new}: {@code <DimensionesNew>}
- * reemplaza a la vieja {@code <DimensionesConTamanio>} en {@code restoNew()} /
- * {@code restoNewIdClase()}. Tras el primer {@code [}, un {@code ]} inmediato
- * ({@code trasCorcheteNew()}) compromete a la forma de inicializador —todos los
- * corchetes de esa creación quedan vacíos ({@code masCorchetesVaciosNew()}) y
- * el {@code { ... }} ({@code inicializadorArreglo()}) pasa a ser obligatorio—,
- * mientras que una expresión ahí sigue la forma de tamaño de siempre
- * (reusando {@code dimensionesConTamanioOpc()} sin cambios); no se pueden
- * mezclar ambas, igual que en Java. {@code <ValorArreglo>} admite anidar otro
- * {@code <InicializadorArreglo>}, así que {@code new int[][]{{1,2},{3,4}}} sale
- * gratis. Sin tokens nuevos en el léxico: las llaves ya existían como
- * {@code LLAVE_A}/{@code LLAVE_C} para {@code <Bloque>}.
- *
- * <p>El ternario ({@code REQ-AS-013}) y el postfijo {@code ++}/{@code --}
- * ({@code REQ-AS-014}) también están implementados (ver "Precedencia del
- * operador ternario" y "Postfijo {@code ++}/{@code --}" en el documento).
- *
- * <p>La recuperación en modo pánico ({@code REQ-AS-008}) también está
- * implementada: {@link #error} ya no lanza {@link ErrorSintactico}, lo agrega a
- * una lista interna y llama a {@link #sincronizar()}, que descarta tokens hasta
- * encontrar uno de sincronización (punto y coma, llave de apertura o de cierre,
- * o EOF) antes de devolver el control, para poder seguir el análisis y reportar
- * más de un error por corrida. {@link #getErrores()} expone la lista completa
- * recién al terminar {@link #start()} — no hay reporte en streaming tipo
- * {@code ResultadoLexicoListener}, se decidió juntar todo de una.
- *
- * <p>El wiring completo vía {@code Controller.AnalizadorSintacticoHandler} /
- * {@code AnalizadorSintacticoHandlerImpl} también está hecho, análogo a
- * {@code AnalizadorHandler}/{@code AnalizadorHandlerImpl} para el léxico:
- * {@code ModuloPrincipalET2} ya no arma el léxico y el sintáctico directo.
- *
- * <p>Pendiente (ver el documento de diseño): dos conflictos se resuelven por
- * convención en el método, no en la gramática: {@code else} colgante
- * ({@link #elseOpcional}) y {@code [} tras dimensiones
- * ({@link #dimensionesConTamanioOpc}).
- */
+
 public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
 
     private final AnalizadorLexico lexico;
@@ -137,8 +14,11 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
     /** Único token de lookahead: el próximo sin consumir. */
     private Token tokenActual;
 
-    public AnalizadorSintacticoImpl(AnalizadorLexico lex) {
+    private final TablaSimbolos tablaSimbolo;
+
+    public AnalizadorSintacticoImpl(AnalizadorLexico lex, TablaSimbolos tablaSimbolo) {
         this.lexico = lex;
+        this.tablaSimbolo = tablaSimbolo;
     }
 
     // ------------------------------------------------------------------
@@ -219,6 +99,18 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
 
     private final List<ErrorSintactico> errores = new ArrayList<>();
 
+    /**
+     * true justo después de que {@link #sincronizar()} consumió un ";" como
+     * parte de recuperarse de un error ya reportado. Le avisa al
+     * {@code match(PUNTO_COMA)} de cierre de la producción en curso que ese
+     * delimitador ya fue consumido, para que no vuelva a exigirlo -- si lo
+     * hiciera, generaría un eco del mismo error contra el primer token de lo
+     * que venga después (posiblemente código válido). Cualquier avance real
+     * de token la limpia: solo protege el primer match(PUNTO_COMA) que se
+     * encuentre inmediatamente después.
+     */
+    private boolean delimitadorConsumidoPorRecuperacion = false;
+
     @Override
     public void start() {
         tokenActual = lexico.nextToken();
@@ -240,8 +132,26 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
         }
     }
 
+    /**
+     * Cierra una producción con su ";" final (RestoDeclLocal, Sentencia,
+     * RestoMiembro, etc.). Si el error() de un sub-parseo inmediatamente
+     * anterior ya sincronizó consumiendo exactamente ese ";" -- porque el
+     * token ofensivo YA era el delimitador que esta misma producción iba a
+     * pedir -- no lo vuelve a exigir: ya fue consumido, y volver a exigirlo
+     * generaría un eco del mismo error contra el primer token de lo que
+     * venga después (posiblemente código perfectamente válido).
+     */
+    private void matchCierre(TokenType esperado) {
+        if (delimitadorConsumidoPorRecuperacion) {
+            delimitadorConsumidoPorRecuperacion = false;
+            return;
+        }
+        match(esperado);
+    }
+
     /** Pide el próximo token al léxico. Al llegar a EOF sigue devolviendo EOF. */
     private void avanzar() {
+        delimitadorConsumidoPorRecuperacion = false;
         tokenActual = lexico.nextToken();
     }
 
@@ -266,21 +176,6 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
         sincronizar();
     }
 
-    /**
-     * Modo pánico (REQ-AS-008): descarta tokens hasta dejar {@code tokenActual}
-     * en un punto seguro para retomar. Si el token ofensivo YA es de
-     * sincronización (p. ej. "Foo x = new Foo;" seguido de otro error: el ";"
-     * que sigue ya estaba bien puesto) no se descarta de más — si no, un error
-     * independiente justo a continuación quedaría tragado por esta recuperación.
-     * El ";" se consume (ya delimitó el problema); "{"/"}"/EOF se dejan intactos,
-     * porque son los que ya usan listaSentencias()/listaMiembros()/listaClases()/
-     * bloque() para decidir si siguen o cortan — consumirlos los dejaría ciegos.
-     * Termina siempre: el único caso sin avance es cuando el ofensivo ya es
-     * "{"/"}"/EOF, y ahí los bucles de arriba no vuelven a invocar la producción
-     * que falló (su propio chequeo de FIRST los detiene antes), así que el
-     * desenrolle sin progreso real queda acotado por la profundidad de la
-     * gramática; EOF, por su parte, nunca se agota (el léxico lo repite siempre).
-     */
     private void sincronizar() {
         if (!actualEn(TOKENS_SINCRONIZACION)) {
             avanzar();
@@ -290,6 +185,7 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
         }
         if (actualEs(TokenType.PUNTO_COMA)) {
             avanzar();
+            delimitadorConsumidoPorRecuperacion = true;
         }
     }
 
@@ -317,9 +213,16 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
     }
 
     // <Clase> ::= class idClase <GenericidadOpcional> <HerenciaOpcional> { <ListaMiembros> }
+    // Pasada 1 del EDT (ver "Acciones semánticas sobre la gramática original"
+    // en analizador_semantico.md): apenas se reconoce el nombre, se crea la
+    // Clase (vacía) y se registra en la tabla. Herencia/miembros quedan para
+    // la Pasada 2 (fuera de alcance de este pase).
     private void clase() {
         match(TokenType.PR_CLASS);
+        Token nombreClase = tokenActual;
         match(TokenType.ID_CLASE);
+        Clase claseActual = crearClase(nombreClase);
+        tablaSimbolo.insertarClase(claseActual);
         genericidadOpcional();
         herenciaOpcional();
         match(TokenType.LLAVE_A);
@@ -328,14 +231,41 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
     }
 
     // <Interfaz> ::= interface idClase <GenericidadOpcional> <ExtensionOpcional> { <ListaMetodosInterfaz> }
+    // Mismo mecanismo de Pasada 1 que <Clase>: registrar el nombre apenas se
+    // conoce, comparte el mismo espacio de nombres que las clases.
     private void interfaz() {
         match(TokenType.PR_INTERFACE);
+        Token nombreInterfaz = tokenActual;
         match(TokenType.ID_CLASE);
+        Interfaz interfazActual = new Interfaz(nombreInterfaz, tablaSimbolo);
+        tablaSimbolo.insertarClase(interfazActual);
         genericidadOpcional();
-        extensionOpcional();
+        extensionOpcional(interfazActual);
         match(TokenType.LLAVE_A);
         listaMetodosInterfaz();
         match(TokenType.LLAVE_C);
+    }
+
+    // Construye la Clase y la deja como "clase actual" de la tabla (Estrategia A,
+    // ver "Tabla de símbolos: por qué no usar Singleton" en analizador_semantico.md).
+    // La inserción en la tabla queda a cargo de clase(), que es quien decide cómo
+    // reportar un nombre repetido.
+    private Clase crearClase(Token nombre) {
+        Clase clase = new Clase(nombre, tablaSimbolo);
+        tablaSimbolo.setClaseActual(clase);
+        return clase;
+    }
+
+    // Construye el Metodo con placeholders (tipoRetorno=null, sin parámetros) y
+    // lo agrega a la clase actual. tipoMetodo()/argsFormales() todavía son
+    // puramente sintácticos (no resuelven Tipo/Parametro reales) — eso es
+    // Pasada 2, fuera de alcance de este pase; tipoRetorno/params se van a
+    // tener que pisar con los valores reales cuando se implemente.
+    private Metodo crearMetodo(Token nombre, boolean estatico) {
+        Metodo metodo = new Metodo(nombre, null, estatico, new ArrayList<>());
+        tablaSimbolo.setMetodoActual(metodo);
+        tablaSimbolo.agregarMetodoAClaseActual(metodo);
+        return metodo;
     }
 
     // <GenericidadOpcional> ::= < idGen > | ϵ
@@ -353,20 +283,26 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
     private void herenciaOpcional() {
         if (actualEs(TokenType.PR_EXTENDS)) {
             match(TokenType.PR_EXTENDS);
+            Token padre = tokenActual; // idClase del padre, antes de que tipoReferencia() lo consuma
             tipoReferencia();
+            tablaSimbolo.getClaseActual().setHerencia(padre);
         } else if (actualEs(TokenType.PR_IMPLEMENTS)) {
             match(TokenType.PR_IMPLEMENTS);
             tipoReferencia();
+            //TODO: wirear 'implements' a la clase actual (pendiente: Clase.interfaces
+            // espera Interfaz ya resuelta, no Token — es una Pasada 2 distinta a esta).
         } else {
             // ϵ — no hace nada
         }
     }
 
     // <ExtensionOpcional> ::= extends <TipoReferencia> | ϵ
-    private void extensionOpcional() {
+    private void extensionOpcional(Interfaz interfazActual) {
         if (actualEs(TokenType.PR_EXTENDS)) {
             match(TokenType.PR_EXTENDS);
+            Token padre = tokenActual; // idClase del padre, antes de que tipoReferencia() lo consuma
             tipoReferencia();
+            interfazActual.setExtendida(padre);
         } else {
             // ϵ — no hace nada
         }
@@ -422,28 +358,39 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
     private void cuerpoMiembro() {
         if (actualEs(TokenType.PR_STATIC)) {
             match(TokenType.PR_STATIC);
-            tipoMetodo();
+            Tipo tipoRetorno = tipoMetodo();
+            Token nombreMetodo = tokenActual;
             match(TokenType.ID_MET_VAR);
-            argsFormales();
+            Metodo metodo = crearMetodo(nombreMetodo, true);
+            List<Parametro> params = argsFormales();
+            metodo.setTipoRetorno(tipoRetorno);
+            metodo.setParametros(params);
             bloque();
         } else if (actualEs(TokenType.PR_VOID)) {
             match(TokenType.PR_VOID);
+            Token nombreMetodo = tokenActual;
             match(TokenType.ID_MET_VAR);
-            argsFormales();
+            Metodo metodo = crearMetodo(nombreMetodo, false);
+            List<Parametro> params = argsFormales();
+            metodo.setParametros(params);
             bloque();
         } else if (actualEn(PRIMEROS_TIPO_PRIMITIVO)) {
-            tipoPrimitivo();
+            Token tipoTok = tipoPrimitivo();
             dimensionesOpcionales();
+            Token nombreMiembro = tokenActual;
             match(TokenType.ID_MET_VAR);
-            restoMiembro();
+            restoMiembro(nombreMiembro, tipoTok);
         } else if (actualEs(TokenType.ID_GEN)) {
+            Token tipoTok = tokenActual;
             match(TokenType.ID_GEN);
             dimensionesOpcionales();
+            Token nombreMiembro = tokenActual;
             match(TokenType.ID_MET_VAR);
-            restoMiembro();
+            restoMiembro(nombreMiembro, tipoTok);
         } else if (actualEs(TokenType.ID_CLASE)) {
+            Token idClaseTok = tokenActual;
             match(TokenType.ID_CLASE);
-            trasIdClaseMiembro();
+            trasIdClaseMiembro(idClaseTok);
         } else {
             error("un miembro de clase (\"static\", \"void\" o un tipo)");
         }
@@ -455,15 +402,19 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
     // cualquier otra cosa => era un atributo o método cuyo tipo es esa clase
     // (Foo bar; | Foo<X> bar; | Foo bar(...) {...}), con <TipoGenericoOpcional>
     // y <DimensionesOpcionales> anulables hasta idMetVar.
-    private void trasIdClaseMiembro() {
+    private void trasIdClaseMiembro(Token idClassToken) {
         if (actualEs(TokenType.PAR_A)) {
-            argsFormales();
+            // "(" pegado, es el constructor.
+            List<Parametro> params = argsFormales();
             bloque();
+            Constructor constructor = new Constructor(idClassToken, params);
+            tablaSimbolo.getClaseActual().agregarConstructor(constructor);
         } else {
             tipoGenericoOpcional();
             dimensionesOpcionales();
+            Token nombreMiembro = tokenActual;
             match(TokenType.ID_MET_VAR);
-            restoMiembro();
+            restoMiembro(nombreMiembro, idClassToken);
         }
     }
 
@@ -473,16 +424,25 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
     // La tercera rama (REQ-AS-011) es un atributo con inicializador
     // (int x = 5;). FIRST disjuntos con las otras dos ({ ; } / { ( } / { = }):
     // no hace falta factorizar nada, "=" ya alcanza para decidir.
-    private void restoMiembro() {
+    // nombreMiembro/tipoTok llegan por parámetro (heredado) desde
+    // cuerpoMiembro()/trasIdClaseMiembro(): son el tipo y el idMetVar ya
+    // consumidos antes de saber si es atributo o método — recién acá se
+    // construye el objeto (Estrategia B, ver analizador_semantico.md).
+    private void restoMiembro(Token nombreMiembro, Token tipoTok) {
         if (actualEs(TokenType.PUNTO_COMA)) {
             match(TokenType.PUNTO_COMA);
+            tablaSimbolo.getClaseActual().agregarAtributo(new Atributo(nombreMiembro, tipoTok));
         } else if (actualEs(TokenType.PAR_A)) {
-            argsFormales();
+            Metodo metodo = crearMetodo(nombreMiembro, false);
+            List<Parametro> params = argsFormales();
+            metodo.setParametros(params);
+            metodo.setTipoRetorno(new Tipo(tipoTok));
             bloque();
         } else if (actualEs(TokenType.OP_ASIGN)) {
             operadorAsignacion();
             expresionCompuesta();
-            match(TokenType.PUNTO_COMA);
+            matchCierre(TokenType.PUNTO_COMA);
+            tablaSimbolo.getClaseActual().agregarAtributo(new Atributo(nombreMiembro, tipoTok));
         } else {
             error("\";\", \"=\" (atributo) o \"(\" (método)");
         }
@@ -493,36 +453,46 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
         tipoMetodo();
         match(TokenType.ID_MET_VAR);
         argsFormales();
-        match(TokenType.PUNTO_COMA);
+        matchCierre(TokenType.PUNTO_COMA);
     }
 
     // <TipoMetodo> ::= <Tipo> | void
-    private void tipoMetodo() {
+    // null representa "void" (ver Metodo.tipoRetorno) -- no es un Tipo de valor.
+    private Tipo tipoMetodo() {
         if (actualEs(TokenType.PR_VOID)) {
             match(TokenType.PR_VOID);
+            return null;
         } else if (actualEn(PRIMEROS_TIPO)) {
-            tipo();
+            return new Tipo(tipo());
         } else {
             error("un tipo o \"void\"");
+            return null;
         }
     }
 
     // <Tipo> ::= <TipoBase> <DimensionesOpcionales>
-    private void tipo() {
-        tipoBase();
+    // DimensionesOpcionales se consume pero no se guarda todavía -- Atributo/
+    // Parametro siguen modelando el tipo como Token crudo (ver "Jerarquía
+    // Tipo" en analizador_semantico.md, todavía no implementada).
+    private Token tipo() {
+        Token t = tipoBase();
         dimensionesOpcionales();
+        return t;
     }
 
     // <TipoBase> ::= <TipoPrimitivo> | <TipoReferencia> | idGen
-    private void tipoBase() {
+    private Token tipoBase() {
         if (actualEn(PRIMEROS_TIPO_PRIMITIVO)) {
-            tipoPrimitivo();
+            return tipoPrimitivo();
         } else if (actualEs(TokenType.ID_CLASE)) {
-            tipoReferencia();
+            return tipoReferencia();
         } else if (actualEs(TokenType.ID_GEN)) {
+            Token t = tokenActual;
             match(TokenType.ID_GEN);
+            return t;
         } else {
             error("un tipo (primitivo, idClase o idGen)");
+            return null;
         }
     }
 
@@ -538,13 +508,16 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
     }
 
     // <TipoReferencia> ::= idClase <TipoGenericoOpcional>
-    private void tipoReferencia() {
+    private Token tipoReferencia() {
+        Token t = tokenActual;
         match(TokenType.ID_CLASE);
         tipoGenericoOpcional();
+        return t;
     }
 
     // <TipoPrimitivo> ::= boolean | char | int
-    private void tipoPrimitivo() {
+    private Token tipoPrimitivo() {
+        Token t = tokenActual;
         if (actualEs(TokenType.PR_BOOLEAN)) {
             match(TokenType.PR_BOOLEAN);
         } else if (actualEs(TokenType.PR_CHAR)) {
@@ -554,6 +527,7 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
         } else {
             error("\"boolean\", \"char\" o \"int\"");
         }
+        return t;
     }
 
     // <TipoGenericoOpcional> ::= < <InstanciadoOParametrico> > | ϵ
@@ -610,42 +584,50 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
     }
 
     // <ArgsFormales> ::= ( <ListaArgsFormalesOpcional> )
-    private void argsFormales() {
+    private List<Parametro> argsFormales() {
         match(TokenType.PAR_A);
-        listaArgsFormalesOpcional();
+        List<Parametro> parametros = listaArgsFormalesOpcional();
         match(TokenType.PAR_C);
+        return parametros;
     }
 
     // <ListaArgsFormalesOpcional> ::= <ListaArgsFormales> | ϵ
-    private void listaArgsFormalesOpcional() {
+    private List<Parametro> listaArgsFormalesOpcional() {
         if (actualEn(PRIMEROS_TIPO)) {
-            listaArgsFormales();
-        } else {
-            // ϵ — no hace nada
+            return listaArgsFormales();
         }
+        return new ArrayList<>();
     }
 
     // <ListaArgsFormales> ::= <ArgFormal> <ListaArgsFormalesResto>
-    private void listaArgsFormales() {
-        argFormal();
-        listaArgsFormalesResto();
+    // A <ListaArgsFormalesResto> se le eliminó la recursión a izquierda: el
+    // acumulador se arrastra a derecha y se cierra en el caso base ϵ (ver "De
+    // la gramática original a la LL(1)" en analizador_semantico.md).
+    private List<Parametro> listaArgsFormales() {
+        Parametro primero = argFormal();
+        List<Parametro> resto = listaArgsFormalesResto();
+        resto.add(0, primero);
+        return resto;
     }
 
     // <ListaArgsFormalesResto> ::= , <ArgFormal> <ListaArgsFormalesResto> | ϵ
-    private void listaArgsFormalesResto() {
+    private List<Parametro> listaArgsFormalesResto() {
         if (actualEs(TokenType.COMA)) {
             match(TokenType.COMA);
-            argFormal();
-            listaArgsFormalesResto();
-        } else {
-            // ϵ — no hace nada
+            Parametro p = argFormal();
+            List<Parametro> resto = listaArgsFormalesResto();
+            resto.add(0, p);
+            return resto;
         }
+        return new ArrayList<>();
     }
 
     // <ArgFormal> ::= <Tipo> idMetVar
-    private void argFormal() {
-        tipo();
+    private Parametro argFormal() {
+        Token tipoTok = tipo();
+        Token nombre = tokenActual;
         match(TokenType.ID_MET_VAR);
+        return new Parametro(nombre, tipoTok);
     }
 
     // <Bloque> ::= { <ListaSentencias> }
@@ -680,7 +662,7 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
             match(TokenType.PUNTO_COMA);
         } else if (actualEs(TokenType.PR_VAR)) {
             varLocal();
-            match(TokenType.PUNTO_COMA);
+            matchCierre(TokenType.PUNTO_COMA);
         } else if (actualEn(PRIMEROS_TIPO_PRIMITIVO)) {
             tipoPrimitivo();
             restoDeclLocal();
@@ -695,7 +677,7 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
             sentIdClase();
         } else if (actualEs(TokenType.PR_RETURN)) {
             sentenciaReturn();
-            match(TokenType.PUNTO_COMA);
+            matchCierre(TokenType.PUNTO_COMA);
         } else if (actualEs(TokenType.PR_IF)) {
             sentenciaIf();
         } else if (actualEs(TokenType.PR_WHILE)) {
@@ -708,7 +690,7 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
             // idClase ya quedó tomado por la rama de arriba; acá sólo entra el
             // resto de FIRST(<Expresion>).
             expresion();
-            match(TokenType.PUNTO_COMA);
+            matchCierre(TokenType.PUNTO_COMA);
         } else {
             error("una sentencia");
         }
@@ -736,7 +718,7 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
             referenciaResto();
             expresionCompuestaResto();
             restoAsignacion();
-            match(TokenType.PUNTO_COMA);
+            matchCierre(TokenType.PUNTO_COMA);
         } else {
             tipoGenericoOpcional();
             restoDeclLocal();
@@ -751,7 +733,7 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
         match(TokenType.ID_MET_VAR);
         masIdsLocal();
         initLocalOpc();
-        match(TokenType.PUNTO_COMA);
+        matchCierre(TokenType.PUNTO_COMA);
     }
 
     // <MasIdsLocal> ::= , idMetVar <MasIdsLocal> | ϵ
@@ -846,7 +828,7 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
         if (actualEs(TokenType.PUNTO_COMA)) {
             match(TokenType.PUNTO_COMA);
             condFor();
-            match(TokenType.PUNTO_COMA);
+            matchCierre(TokenType.PUNTO_COMA);
             actFor();
         } else if (actualEn(PRIMEROS_TIPO_PRIMITIVO)) {
             tipoPrimitivo();
@@ -861,9 +843,9 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
             trasIdClaseFor();
         } else if (actualEn(PRIMEROS_EXPRESION)) {
             expresion();
-            match(TokenType.PUNTO_COMA);
+            matchCierre(TokenType.PUNTO_COMA);
             condFor();
-            match(TokenType.PUNTO_COMA);
+            matchCierre(TokenType.PUNTO_COMA);
             actFor();
         } else {
             error("\";\", un tipo o una expresión (inicialización del \"for\")");
@@ -878,9 +860,9 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
             expresion();
         } else {
             initLocalOpc();
-            match(TokenType.PUNTO_COMA);
+            matchCierre(TokenType.PUNTO_COMA);
             condFor();
-            match(TokenType.PUNTO_COMA);
+            matchCierre(TokenType.PUNTO_COMA);
             actFor();
         }
     }
@@ -898,9 +880,9 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
             referenciaResto();
             expresionCompuestaResto();
             restoAsignacion();
-            match(TokenType.PUNTO_COMA);
+            matchCierre(TokenType.PUNTO_COMA);
             condFor();
-            match(TokenType.PUNTO_COMA);
+            matchCierre(TokenType.PUNTO_COMA);
             actFor();
         } else {
             tipoGenericoOpcional();
@@ -1366,4 +1348,5 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
             // ϵ — no hace nada
         }
     }
+
 }

@@ -1,6 +1,6 @@
 package test.java;
 
-import View.ModuloPrincipalET2;
+import View.ModuloPrincipalET3;
 
 import java.io.*;
 import java.util.ArrayList;
@@ -14,18 +14,20 @@ import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 import org.junit.runners.Parameterized.Parameters;
 
-// Gemelo sintactico de TesterDeCasosConErrores (que es lexico): misma mecanica,
-// pero sobre casos del analizador sintactico y su propia carpeta de recursos.
-// Cada caso lleva en su primera linea el codigo de error esperado con el
-// formato ///<codigo>; el test verifica que ese codigo aparezca en la salida.
+// Gemelo semántico de TesterSintacticoDeCasosConErrores: misma mecanica,
+// pero sobre casos del chequeo semántico de declaraciones (ModuloPrincipalET3)
+// y su propia carpeta de recursos. Cada caso lleva en su primera linea el
+// codigo de error esperado con el formato ///<codigo> (acá, casi siempre
+// [ErrorSem:<CODIGO>|<linea>] -- ver propuesta_casos_test_semantico.md); el
+// test verifica que ese codigo aparezca en la salida.
 @RunWith(Parameterized.class)
-public class TesterSintacticoDeCasosConErrores {
+public class TesterSemanticoDeCasosConErrores {
 
-    private static final ModuloPrincipalET2 init = null;
+    private static final ModuloPrincipalET3 init = null;
 
     private final ByteArrayOutputStream outContent = new ByteArrayOutputStream();
     private final PrintStream originalOut = System.out;
-    private static final String testFilesDirectoryPath = "resources/sintactico/conErrores/";
+    private static final String testFilesDirectoryPath = "resources/semantico/conErrores/";
     private boolean fullCompilerOuputPrintingInEachTest = true;
 
     @Before
@@ -54,7 +56,7 @@ public class TesterSintacticoDeCasosConErrores {
 
     private String input;
 
-    public TesterSintacticoDeCasosConErrores(String input)
+    public TesterSemanticoDeCasosConErrores(String input)
     {
         this.input = input;
     }
