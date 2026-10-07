@@ -1,7 +1,7 @@
 package Controller;
 
-import Model.ErrorSemantico;
-import Model.ErrorSintactico;
+import Model.semantico.ErrorSemantico;
+import Model.sintactico.ErrorSintactico;
 
 import java.util.List;
 

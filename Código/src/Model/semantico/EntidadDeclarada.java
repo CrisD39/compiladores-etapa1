@@ -1,4 +1,4 @@
-package Model;
+package Model.semantico;
 
 public interface EntidadDeclarada {
     String getName();

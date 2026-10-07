@@ -2,10 +2,10 @@ package View;
 
 import Controller.AnalizadorSintacticoHandler;
 import Controller.AnalizadorSintacticoHandlerImpl;
-import Model.ErrorLexico;
-import Model.ErrorSintactico;
-import Model.ResultadoLexicoListener;
-import Model.Token;
+import Model.lexico.ErrorLexico;
+import Model.sintactico.ErrorSintactico;
+import Model.lexico.ResultadoLexicoListener;
+import Model.lexico.Token;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;

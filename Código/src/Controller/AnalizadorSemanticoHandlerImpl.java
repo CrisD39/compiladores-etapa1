@@ -1,13 +1,13 @@
 package Controller;
 
-import Model.AnalizadorLexico;
-import Model.AnalizadorLexicoImpl;
-import Model.AnalizadorSintactico;
-import Model.AnalizadorSintacticoImpl;
-import Model.ResultadoLexicoListener;
-import Model.SourceManager;
-import Model.SourceManagerMejorado;
-import Model.TablaSimbolos;
+import Model.lexico.AnalizadorLexico;
+import Model.lexico.AnalizadorLexicoImpl;
+import Model.sintactico.AnalizadorSintactico;
+import Model.sintactico.AnalizadorSintacticoImpl;
+import Model.lexico.ResultadoLexicoListener;
+import Model.lexico.SourceManager;
+import Model.lexico.SourceManagerMejorado;
+import Model.semantico.TablaSimbolos;
 
 import java.io.IOException;
 

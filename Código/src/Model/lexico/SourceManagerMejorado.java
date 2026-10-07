@@ -1,4 +1,4 @@
-package Model;
+package Model.lexico;
 
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;

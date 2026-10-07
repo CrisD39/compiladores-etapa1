@@ -2,9 +2,9 @@ package View;
 
 import Controller.AnalizadorHandler;
 import Controller.AnalizadorHandlerImpl;
-import Model.ErrorLexico;
-import Model.ResultadoLexicoListener;
-import Model.Token;
+import Model.lexico.ErrorLexico;
+import Model.lexico.ResultadoLexicoListener;
+import Model.lexico.Token;
 
 import java.io.IOException;
 

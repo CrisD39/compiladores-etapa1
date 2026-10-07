@@ -1,7 +1,7 @@
 package Controller;
 
-import Model.ErrorSintactico;
-import Model.ResultadoLexicoListener;
+import Model.sintactico.ErrorSintactico;
+import Model.lexico.ResultadoLexicoListener;
 
 import java.io.IOException;
 import java.util.List;

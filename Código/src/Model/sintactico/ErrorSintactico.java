@@ -1,4 +1,4 @@
-package Model;
+package Model.sintactico;
 
 // Reporte de un error sintáctico (análogo a ErrorLexico, REQ-AS-003). Clase de
 // datos final, sin herencia de excepción: AnalizadorSintacticoImpl ya no lanza

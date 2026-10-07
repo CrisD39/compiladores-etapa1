@@ -1,4 +1,6 @@
-package Model;
+package Model.semantico;
+
+import Model.lexico.Token;
 
 // Wrapper mínimo sobre el Token del tipo. La jerarquía real
 // (TipoPrimitivo/TipoReferencia/TipoGenerico/TipoArreglo, ver "Diseño:

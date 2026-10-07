@@ -1,4 +1,6 @@
-package Model;
+package Model.semantico;
+
+import Model.lexico.Token;
 
 public class Atributo implements Chequeable {
     private Token nombre;

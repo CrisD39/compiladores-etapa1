@@ -1,4 +1,4 @@
-package Model;
+package Model.semantico;
 
 // Error semántico de "chequeo de declaraciones": se identifica con un código
 // fijo por regla violada (ver "Decisión tomada" en

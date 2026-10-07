@@ -1,4 +1,6 @@
-package Model;
+package Model.semantico;
+
+import Model.lexico.Token;
 
 import java.util.ArrayList;
 import java.util.HashSet;

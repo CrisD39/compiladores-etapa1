@@ -1,6 +1,6 @@
 package Controller;
 
-import Model.ResultadoLexicoListener;
+import Model.lexico.ResultadoLexicoListener;
 
 import java.io.IOException;
 

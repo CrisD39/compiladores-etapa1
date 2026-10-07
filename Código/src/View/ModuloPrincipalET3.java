@@ -3,11 +3,11 @@ package View;
 import Controller.AnalizadorSemanticoHandler;
 import Controller.AnalizadorSemanticoHandlerImpl;
 import Controller.ResultadoAnalisisSemantico;
-import Model.ErrorLexico;
-import Model.ErrorSemantico;
-import Model.ErrorSintactico;
-import Model.ResultadoLexicoListener;
-import Model.Token;
+import Model.lexico.ErrorLexico;
+import Model.semantico.ErrorSemantico;
+import Model.sintactico.ErrorSintactico;
+import Model.lexico.ResultadoLexicoListener;
+import Model.lexico.Token;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;

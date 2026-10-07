@@ -1,4 +1,4 @@
-package Model;
+package Model.lexico;
 
 import java.util.HashMap;
 import java.util.Map;

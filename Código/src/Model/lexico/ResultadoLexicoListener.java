@@ -1,4 +1,4 @@
-package Model;
+package Model.lexico;
 
 // Permite que AnalizadorLexico entregue tokens y errores a medida que los reconoce
 // (streaming), en vez de acumular todo en una lista antes de devolver el control.

@@ -1,4 +1,4 @@
-package Model;
+package Model.semantico;
 
 public interface Chequeable {
     // 'tabla' es el sumidero de errores (TablaSimbolos.agregarError) -- cada

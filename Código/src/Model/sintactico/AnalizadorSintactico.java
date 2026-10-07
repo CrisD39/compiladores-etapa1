@@ -1,4 +1,4 @@
-package Model;
+package Model.sintactico;
 
 import java.util.List;
 

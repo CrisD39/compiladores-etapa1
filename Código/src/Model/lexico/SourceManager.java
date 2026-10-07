@@ -1,4 +1,4 @@
-package Model;
+package Model.lexico;
 //Author: Juan Dingevan
 
 import java.io.FileNotFoundException;

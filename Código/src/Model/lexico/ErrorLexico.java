@@ -1,4 +1,4 @@
-package Model;
+package Model.lexico;
 
 // Datos necesarios para el reporte de REQ-MP-08: línea, razón, la línea fuente completa
 // y la columna del carácter que produjo el error, para poder dibujar el "^" debajo.

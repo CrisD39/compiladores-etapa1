@@ -1,4 +1,16 @@
-package Model;
+package Model.sintactico;
+
+import Model.lexico.AnalizadorLexico;
+import Model.lexico.Token;
+import Model.lexico.TokenType;
+import Model.semantico.Atributo;
+import Model.semantico.Clase;
+import Model.semantico.Constructor;
+import Model.semantico.Interfaz;
+import Model.semantico.Metodo;
+import Model.semantico.Parametro;
+import Model.semantico.TablaSimbolos;
+import Model.semantico.Tipo;
 
 import java.util.ArrayList;
 import java.util.Collections;
