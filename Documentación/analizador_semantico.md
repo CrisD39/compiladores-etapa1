@@ -19,7 +19,7 @@ Se agrupa según el nivel donde se realizan los chequeos:
 tests en `Código/resources/semantico/{sinErrores,conErrores}/` + los
 testers `TesterSemanticoDeCasosSinErrores`/`ConErrores`
 (`Código/src/test/java/`) — ver `propuesta_casos_test_semantico.md` secciones
-3.5/3.6 para el detalle de qué cubre cada archivo. El chequeo de sentencias
+3.2/3.5/3.6 para el detalle de qué cubre cada archivo. El chequeo de sentencias
 (variables locales, `ERR_VARIABLE_LOCAL_DUPLICADA`, resolución de
 identificadores en expresiones, etc.) **no está implementado ni tiene casos
 de prueba todavía** — queda explícitamente para cuando se diseñe esa sección
@@ -60,16 +60,53 @@ En general implica chequear que:
   adecuado (ej: el tipo de un atributo o el retorno de un método).
 - Cuestiones propias de cada... _(pendiente de completar)_
 
-**TODO — Chequeo de corrección.** Por ahora queda pendiente de diseñar. La
-idea es que quede desligado de la construcción de la TS (que es lo que cubre
-el EDT de la sección "Acciones semánticas sobre la gramática original"): la
-construcción arma los objetos y los registra; el chequeo de corrección corre
-**después**, recorriendo la `TablaSimbolos` ya consolidada (no el árbol de
-parseo) — reglas que necesitan todo resuelto de antemano, como herencia
-circular, compatibilidad de firmas al overridear un método heredado, o que
-los tipos referenciados efectivamente existan. Es lo que ya insinúa
-`Chequeable.estaBienDeclarado()` / `TablaSimbolos.estaBienDeclarada()` en el
-código, todavía sin implementación real. Queda para más adelante.
+**TODO — Chequeo de corrección.** La idea es que quede desligado de la
+construcción de la TS (que es lo que cubre el EDT de la sección "Acciones
+semánticas sobre la gramática original"): la construcción arma los objetos y
+los registra; el chequeo de corrección corre **después**, recorriendo la
+`TablaSimbolos` ya consolidada (no el árbol de parseo) — reglas que necesitan
+todo resuelto de antemano, como herencia circular, compatibilidad de firmas
+al overridear un método heredado, o que los tipos referenciados efectivamente
+existan. Es lo que insinúa `Chequeable.estaBienDeclarado()` /
+`TablaSimbolos.consolidar()` en el código.
+
+**Estado actual (ya implementado, vía `estaBienDeclarado(TablaSimbolos, Set<String>)` en
+`Clase`/`Atributo`/`Metodo`/`Constructor`/`Interfaz`):** nombres repetidos
+(clase/atributo/método/constructor/parámetro, incluida la colisión de un
+atributo redeclarado por herencia en `Clase.consolidarConPadre`), herencia
+circular, y que el tipo de un atributo, parámetro o retorno (`idClase`)
+exista en la tabla — incluidos sus argumentos genéricos anidados (Logro 5,
+ver abajo). **Scope de `idGen` — implementado (sin jerarquía `Tipo`
+completa, ver abajo):** `Clase`/`Interfaz` guardan su parámetro de tipo
+(`parametrosTipo`, 0 o 1 elemento: un único parámetro, `REQ-AS-010`) y
+`Metodo` el suyo propio (`parametrosTipoPropios`, mismo límite; soporta
+métodos genéricos como `<T> T metodo(T x)`, independientes del genérico de la
+clase — ver `propuesta_casos_test_semantico.md` sección 5.3).
+`Chequeable.estaBienDeclarado` recibe el entorno de nombres de `idGen`
+vigente (`Set<String>`) en vez de depender de estado transitorio en
+`TablaSimbolos`: `Clase`/`Interfaz` construyen el suyo a partir de
+`parametrosTipo` y lo propagan a atributos/constructores/métodos; `Metodo`
+lo extiende con sus propios `parametrosTipoPropios` antes de chequear su
+tipo de retorno y delegar en cada `Parametro`. Un método puede redeclarar el
+mismo nombre que su clase/interfaz contenedora (shadowing) sin error — el
+entorno vigente es la unión de ambos, no se modela "cuál T es cuál". Un
+`idGen` que no está en el entorno vigente (tipo de atributo, parámetro o
+retorno) reporta `ERR_TIPO_GENERICO_NO_DECLARADO`. **Override de un método
+genérico heredado — implementado**: `Metodo.getFirma()`/`getRetornoCanonico()`
+canonicalizan por posición los `idGen` que son parámetro de tipo propio del
+método (`<T> T m(T x)` y `<U> U m(U x)` son la misma firma canónica), así que
+`Clase.consolidarConPadre()`/`consolidarInterfaces()` reconocen la
+redefinición y la compatibilidad de retorno aunque el nombre del parámetro
+de tipo propio cambie — sin necesitar sustitución real de tipos (ver
+limitación abajo). **Todavía pendiente:** chequeo de corrección propio de
+`Interfaz` más allá de lo de arriba, la jerarquía `Tipo` completa
+(`TipoPrimitivo`/`TipoReferencia`/`TipoGenerico`/`TipoArreglo` — hoy `Tipo`
+es una sola clase recursiva, sin dimensiones de arreglo) y la
+sustitución de tipos (`Lista<T>` → `Lista<Integer>`, y el caso de override
+cuando la subclase pasa un argumento de tipo distinto a una superclase
+genérica en `extends`/`implements`) — ver `propuesta_casos_test_semantico.md`
+secciones 3.2/3.5/3.6/5.3 para el detalle de qué está cubierto por archivo
+de test.
 
 ## Tabla de símbolos: por qué no usar Singleton
 
@@ -254,6 +291,16 @@ procesar `<Tipo>` durante el chequeo de declaraciones, y ese `Tipo` resuelto es
 lo que se guarda en `Atributo`/`Metodo`/`Parametro` de ahí en más — no el
 `Token` original (que puede seguir guardándose aparte solo si hace falta para
 reportar la línea de un error).
+
+**Estado actual**: `Metodo` ya guarda `Tipo` (`tipoRetorno`). `Atributo` y
+`Parametro` siguen guardando el `Token` crudo — la jerarquía completa de
+`Tipo` para ellos sigue pendiente —, pero su `estaBienDeclarado(TablaSimbolos)`
+ya hace el chequeo más básico de esta sección sin necesitarla: si el token es
+`idClase`, resuelve el lexema contra `tabla.buscarClase(...)` y reporta
+`ERR_TIPO_NO_DECLARADO` si no existe. Los primitivos e `idGen` se dejan pasar
+sin chequear (`idGen` necesita resolver contra el scope de genéricos vigente,
+que todavía no existe en el modelo — ver "Estado actual" en "TODO — Chequeo
+de corrección").
 
 ### Reglas de compatibilidad que dependen de esto
 
@@ -741,7 +788,21 @@ vía `tablaSimbolo.setClaseActual`/`setMetodoActual`) ya usa **Estrategia A**
 para dejar la `Clase`/`Metodo` "abierta" como placeholder — contradice la
 decisión original de este documento, pero es un estado de transición
 razonable: Pasada 1 crea el objeto vacío para poder referenciarlo, y se va
-parchando (`tipoRetorno`, `params`) a medida que Pasada 2 lo resuelve.
+parchando (`tipoRetorno`, `params`) a medida que Pasada 2 lo resuelve. El
+parche en sí también pasa por delegación, igual que `agregarMetodoAClaseActual`
+hace con `claseActual`: el parser llama
+`tablaSimbolo.setTipoRetornoAMetodoActual(tipo)` /
+`tablaSimbolo.setParametrosAMetodoActual(params)` en vez de mutar
+directamente la variable local `metodo` devuelta por `crearMetodo()` — de
+hecho `crearMetodo()` ya ni devuelve el `Metodo`, es `void`, porque nada en el
+parser necesita esa referencia local.
+
+`Atributo`/`Parametro`/`Constructor` no siguen este patrón de
+placeholder-y-parche: se construyen completos en una sola línea (su tipo ya
+es un `Token` resuelto localmente antes de llamar al constructor, Estrategia
+B pura) y se adjuntan encadenando `tablaSimbolo.getClaseActual().agregarX(...)`
+— no tienen un "actual" al que delegar, porque no hay nada que parchar
+después.
 
 Para el cuerpo del método **no** sirve extender esa misma idea a cada
 sentencia (es decir, no hacer `metodoActual.agregarSentencia(nodo)` como
@@ -854,12 +915,159 @@ atributos/métodos resueltos) — igual que el resto de "Chequeo de corrección"
 ## Logros (Etapa 3)
 
 1. **Sobrecarga — `sealed` y `final` (E3).** El compilador permite usar los
-   modificadores `sealed` y `final` como en Java. `sealed` solo aplica a
-   clases e interfaces, mientras que `final` aplica a clases, interfaces y
-   métodos.
+   modificadores `sealed` y `final` como en Java. `sealed` aplica a clases
+   **e interfaces**. `final` aplica a clases y métodos — a diferencia del
+   enunciado original de este logro, se decidió **no** admitir `final` en
+   interfaces, porque Java real tampoco lo admite (ver "Decisión" más
+   abajo).
+
+   **Estado actual (clases):** `sealed`, `permits`, `nonsealed` y `final`
+   son palabras clave (`TokenType`/`TablaPalabrasClave`), cada una como
+   alternativa separada al principio de `<ListaClases>`
+   (`AnalizadorSintacticoImpl.sealed()`/`nonSealed()`/`finalClase()`/
+   `permitidosSealed()`/`permitidosSealedResto()`). Como arrancan con
+   palabras clave distintas, `sealed final class X` no es ni siquiera
+   parseable — la gramática excluye por construcción esa combinación
+   contradictoria, sin chequeo semántico aparte. **Mensaje de error
+   dedicado para esto** (`sealed()`/`nonSealed()`/`finalClase()`, vía
+   `errorModificadorRepetido()`): al consumir el primer modificador, si lo
+   que sigue es OTRO de `sealed`/`nonsealed`/`final` en vez de
+   `class`/`interface` (repetido como `sealed sealed class X`, o combinado
+   como `final sealed final class X`), se reporta un único error claro
+   ("no se puede repetir ni combinar sealed/nonsealed/final") sin
+   sincronizar — el modificador sobrante queda tal cual para que la
+   recursión de `listaClases()` lo vuelva a tratar como modificador en la
+   próxima vuelta, y la declaración real que sigue se termina parseando
+   bien. Antes de esto, `match(PR_CLASS)` fallaba con el error genérico de
+   siempre y el modo pánico se comía toda la declaración real (hasta el
+   próximo `{`) como si fuera basura. En `final` sobre método se
+   agregó `<FinalOpcional>` entre `<Visibilidad>` y `<CuerpoMiembro>`
+   (`finalOpcional()`), threadeado hasta `Metodo.setFinal`; en atributo o
+   constructor es error sintáctico (no están en el logro).
+
+   **Estado actual (interfaces):** `sealed`/`nonsealed`/`permits` ya
+   también aplican a `<Interfaz>` (`AnalizadorSintacticoImpl.sealedInterfaz()`/
+   `nonSealedInterfaz()`/`permitidosSealedInterfaz()`/
+   `permitidosSealedRestoInterfaz()` — mismo código que la versión de
+   clase, duplicado sobre `Interfaz` en vez de `Clase`, igual criterio que
+   ya usa `Interfaz.consolidarHerencia` respecto de
+   `Clase.consolidarHerencia`). `final` en interfaz sigue sin existir (ver
+   "Decisión" abajo), así que la exhaustividad de `permits` en interfaces es
+   de **dos vías** (`sealed`/`nonsealed`), no de tres.
+
+   **Estado actual (`implements`):** wireado por primera vez — `herenciaOpcional()`
+   ahora captura el Token de la interfaz y llama
+   `Clase.agregarInterfaz(Token)` (antes era un `TODO` sin implementar;
+   `Clase.interfaces` se inicializaba pero nada lo poblaba). Con esto,
+   `sealed` en una interfaz controla **ambos lados** por igual, como en Java
+   real: a quién puede extenderla otra interfaz, y a qué clases puede
+   implementarla — Java no distingue entre "subtipo por extends" y "subtipo
+   por implements", ambos son subtipos directos sujetos al mismo `permits`.
+
+   Semánticamente, todo en `Clase.consolidarHerencia`/`consolidarInterfaces`/
+   `consolidarConPadre` y su espejo en `Interfaz.consolidarHerencia` (mismos
+   códigos de error, reusados tal cual entre clase e interfaz, y entre
+   `extends`/`implements` — igual que ya pasa con
+   `ERR_HERENCIA_CICLICA`/`ERR_TIPO_NO_DECLARADO`):
+   - Subclase/subinterfaz/implementación de una `sealed`: debe figurar en su
+     `permits`, si no `ERR_HERENCIA_NO_PERMITIDA` — chequeo de **un solo
+     nivel**.
+   - Subclase/subinterfaz/implementación *permitida* por una `sealed`: debe
+     declararse `final` (solo clases), `sealed` o `nonsealed` — un
+     `class`/`interface` liso, aunque esté en la lista, ya es
+     `ERR_HERENCIA_PERMITIDA_SIN_MODIFICADOR` (exhaustividad real de Java).
+   - `nonsealed` sin ningún supertipo directo `sealed` real (ni por
+     `extends` ni por `implements`) → `ERR_NONSEALED_SIN_PADRE_SEALED`. En
+     `Clase` esto ya no se decide en el momento de resolver `extends`: un
+     campo `tieneSupertipoSellado` se marca `true` desde
+     `consolidarHerencia` (si el padre es `sealed`) **o** desde
+     `consolidarInterfaces` (si alguna interfaz implementada es `sealed`), y
+     recién al final de `consolidar()` se decide si corresponde el error —
+     así una clase `nonsealed` que solo tiene un supertipo `sealed` por
+     `implements` (sin ningún `extends`) no es un falso positivo.
+   - Extender una clase `final` → `ERR_HERENCIA_CLASE_FINAL`, sin
+     excepción (no hay `permits` que valga para una `final`; no aplica a
+     interfaces porque `final interface` no existe).
+   - Redefinir (misma firma) un método heredado que era `final` →
+     `ERR_METODO_REDEFINE_FINAL`. Chequeo de **firmas**, en la fusión de
+     herencia — no toca cuerpos/sentencias de método (esa etapa sigue sin
+     implementar y no hace falta para esto).
+
+   **Decisión — `final` en interfaz:** se quitó de la gramática. Java real
+   no permite declarar una interfaz `final` (contradice su propósito: una
+   interfaz existe para ser implementada). Escribir `final interface X {}`
+   cae en el error sintáctico normal de `clase()` esperando `"class"` y
+   encontrando `"interface"` — no hace falta un caso especial.
+
+   **Hecho — validación de `permits`** (`Clase.validarPermitidos`/
+   `Interfaz.validarPermitidos`, llamado al final de `consolidar()`): cada
+   nombre en `permits` tiene que corresponder a un subtipo DIRECTO real,
+   igual que `javac`. Dos casos, dos códigos distintos (como en Java real:
+   "cannot find symbol" es un error diferente de "class X does not extend
+   sealed class Y in permits clause"):
+   - El nombre no corresponde a ninguna clase/interfaz declarada →
+     `ERR_TIPO_NO_DECLARADO` (mismo código que cualquier otro tipo no
+     declarado).
+   - El nombre existe pero no extiende/implementa esta clase/interfaz
+     directamente → `ERR_PERMITS_NO_ES_SUBTIPO` (código nuevo). Para una
+     interfaz, el subtipo puede ser otra interfaz que la extiende o una
+     clase que la implementa; para una clase, solo otra clase que la
+     extiende (una interfaz no puede `extends` de una clase).
+   Ver `propuesta_casos_test_semantico.md` §5.1 para el detalle y los casos
+   de test (`semError45`/`semError46`/`semError47`).
 
 2. **Herencia múltiple (E3).** El compilador permite herencia múltiple de
    interfaces, como en Java.
+
+   **Estado actual:** `<HerenciaOpcional>` (`implements` en una clase) y
+   `<ExtensionOpcional>` (`extends` en una interfaz) ya aceptan una lista de
+   2+ interfaces separada por coma (`<ListaInterfaces>`/
+   `<ListaInterfacesResto>`, recursión a derecha —
+   `AnalizadorSintacticoImpl.listaInterfacesImplementadas()`/
+   `listaInterfacesExtendidas()`). `extends`+`implements` combinados en la
+   misma clase siguen siendo mutuamente excluyentes (sin cambios ahí). El
+   chequeo de `sealed`/`permits`/exhaustividad del Logro 1 ya opera sobre
+   cada entrada de la lista de forma independiente — un problema con una
+   entrada no aborta el chequeo de las demás (mismo criterio de
+   multi-detección, Logro 4). Esto fue, de paso, lo que cerró el único
+   límite que le quedaba al Logro 1 (antes `sealed` en una interfaz solo
+   controlaba una única clase/interfaz del otro lado).
+
+   **Estado actual (métodos de interfaz):** `Interfaz.metodos` ya se
+   puebla — `metodoInterfaz()` construía antes solo sintaxis y descartaba
+   todo; ahora arma el `Metodo` completo (sin placeholder: `<MetodoInterfaz>`
+   no tiene cuerpo que parsear después, a diferencia de un método de clase)
+   y lo registra con `Interfaz.agregarMetodo(Metodo)`, que chequea
+   duplicados por firma igual que `Clase.agregarMetodo`
+   (`ERR_METODO_DUPLICADO`). Esto activó, por fin,
+   `ERR_METODO_INTERFAZ_NOIMPLEMENTADO` — existía como chequeo desde antes,
+   pero nunca disparaba porque iteraba sobre una colección siempre vacía.
+   `implements A, A` / `extends A, A` (interfaz repetida) ya es error
+   (`ERR_INTERFAZ_DUPLICADA`, en `Clase.agregarInterfaz`/
+   `Interfaz.agregarHerencia`) — no se deduplica más en silencio.
+
+   **Estado actual (conflicto de retorno):** "mismo nombre, distinta
+   firma" entre interfaces se separa en dos casos — distintos parámetros
+   es sobrecarga (ya resuelto solo, `getFirma()` los distingue) y mismos
+   parámetros con distinto retorno **sí** es conflicto real de Java.
+   `Clase.consolidarInterfaces()` rastrea el tipo de retorno esperado por
+   firma (arrancando por los métodos propios de la clase) y reporta
+   `ERR_METODO_RETORNO_INCOMPATIBLE` si una interfaz (o la propia clase)
+   trae un retorno distinto para la misma firma.
+
+   **Arreglado — bug preexistente de sobrecarga real, encontrado de paso.**
+   La sobrecarga real (mismo nombre, distintos parámetros) dentro de una
+   sola clase estaba rota: `crearMetodo()` registraba el placeholder (con
+   `params=[]`) en `Clase.metodos` antes de que `argsFormales()` terminara
+   de parsear los parámetros reales, así que el chequeo de firma duplicada
+   siempre veía `nombre()` sin parámetros y disparaba `ERR_METODO_DUPLICADO`
+   por error entre dos sobrecargas legítimas. `crearMetodo()` ya no
+   registra nada — solo deja el placeholder como `metodoActual`; el
+   registro real se movió a `TablaSimbolos.agregarMetodoActualAClaseActual()`,
+   llamado después de `setParametrosAMetodoActual()` en los 3 call sites
+   del parser, cuando `getFirma()` ya ve los parámetros reales. Ver
+   `propuesta_casos_test_semantico.md` §5.2 y §6 punto 3 para el detalle y
+   los casos de test.
 
 3. **Métodos genéricos (E3).** El compilador permite declarar métodos
    genéricos, como en Java. Las reglas de redefinición para estos métodos
@@ -872,8 +1080,53 @@ atributos/métodos resueltos) — igual que el resto de "Chequeo de corrección"
    continuar con el análisis de la siguiente declaración y que, cuando hay
    nombres repetidos, descarte ambas entidades.
 
+   **Estado actual — hecho.** El mecanismo base ya estaba implementado desde
+   antes (la lista de errores se acumula sin abortar; `AnalizadorSemantico
+   HandlerImpl.analizar()` corre `tablaSimbolos.consolidar()` siempre, aun
+   con errores sintácticos, y `ModuloPrincipalET3` junta ambas listas) — lo
+   que faltaba era solo bajar a archivo los casos límite. Al hacerlo
+   (`resources/semantico/multiError/`) se encontró y arregló un bug real:
+   con **3 o más** declaraciones del mismo nombre, `TablaSimbolos.
+   insertarClase` **borraba** la entrada al detectar el duplicado, así que
+   una declaración impar más allá de la segunda ya no colisionaba con nada
+   y se reinsertaba limpia — "resucitando" un nombre que debía quedar
+   descartado para siempre. Fix: un `Set<String> nombresInvalidados` que,
+   una vez que un nombre dispara `ERR_CLASE_DUPLICADA`, lo mantiene
+   invalidado sin importar cuántas veces más se repita. Ver
+   `propuesta_casos_test_semantico.md` §5.4.
+
 5. **Genericidad avanzada.** El compilador controla que los tipos genéricos
    anidados sean utilizados correctamente en la declaración.
+
+   **Estado actual — hecho**, dentro del marco de la Genericidad Avanzada de
+   la Etapa 2 (`REQ-AS-010`): anidados y notación diamante, **un único
+   parámetro de tipo** por clase/interfaz (y por método, misma producción
+   `<GenericidadOpcional>`). En una vuelta anterior se había generalizado a
+   lista (`<T, U>`); se revirtió para respetar `REQ-AS-010`.
+
+   - `Tipo` pasó a ser recursivo (`token` + `argumento`, también `Tipo`),
+     igual que `<InstanciadoOParametrico>`. El parser
+     (`tipoGenericoOpcional()`/`instanciadoOParametrico()`/`tipoReferencia()`/
+     `trasIdClaseMiembro()`) ya no descarta el argumento. `Atributo`,
+     `Parametro` y el retorno de `Metodo` guardan un `Tipo` y delegan el
+     chequeo en `Tipo.estaBienDeclarado`.
+   - Cada nivel se valida: `idClase` contra la tabla (`ERR_TIPO_NO_DECLARADO`),
+     `idGen` contra el entorno vigente (`ERR_TIPO_GENERICO_NO_DECLARADO`), y
+     una clase/interfaz **no** genérica usada con argumento
+     (`ERR_TIPO_NO_GENERICO`, código nuevo, el *"does not take parameters"*
+     de `javac`). Raw type (`Lista l;` siendo genérica) se acepta, como en
+     Java. El argumento se recorre aunque la cabeza falle (multi-detección).
+   - De paso, el retorno de un método ahora valida su propia cabeza
+     `idClase` (antes solo atributos y parámetros lo hacían).
+   - La firma de método sigue mirando solo la cabeza del tipo de cada
+     parámetro: `m(Lista<A>)` y `m(Lista<B>)` tienen el mismo erasure.
+   - Diamante: válido solo en `new` (sintáctico, sin cambios); en una
+     declaración de miembro, variable local o for-each es error sintáctico.
+
+   **Fuera de alcance:** argumentos genéricos en `extends`/`implements` (se
+   parsean, no se validan), sustitución de tipos, compatibilidad/invariancia
+   en inicializadores, inferencia del diamante (sentencias). Ver
+   `propuesta_casos_test_semantico.md` §5.5.
 
 ## Aclaraciones:
 - Cuando el problema se da por un nombre repetido, el token es el que fue declarado

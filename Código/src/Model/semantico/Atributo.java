@@ -2,11 +2,13 @@ package Model.semantico;
 
 import Model.lexico.Token;
 
+import java.util.Set;
+
 public class Atributo implements Chequeable {
     private Token nombre;
-    private Token tipo;
+    private Tipo tipo;
 
-    public Atributo(Token nombre, Token tipo) {
+    public Atributo(Token nombre, Tipo tipo) {
         this.nombre = nombre;
         this.tipo = tipo;
     }
@@ -15,7 +17,7 @@ public class Atributo implements Chequeable {
         return nombre;
     }
 
-    public Token getTipo() {
+    public Tipo getTipo() {
         return tipo;
     }
 
@@ -24,9 +26,7 @@ public class Atributo implements Chequeable {
     }
 
     @Override
-    public void estaBienDeclarado(TablaSimbolos tabla) {
-        if (!((nombre == null) && (tipo == null))) {
-            //TODO: reportar error
-        }
+    public void estaBienDeclarado(TablaSimbolos tabla, Set<String> entornoGenerico) {
+        tipo.estaBienDeclarado(tabla, entornoGenerico);
     }
 }

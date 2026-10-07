@@ -32,6 +32,10 @@ public final class TablaPalabrasClave {
         PALABRAS_CLAVE.put("null", TokenType.PR_NULL);
         PALABRAS_CLAVE.put("true", TokenType.PR_TRUE);
         PALABRAS_CLAVE.put("false", TokenType.PR_FALSE);
+        PALABRAS_CLAVE.put("sealed", TokenType.PR_SEALED);
+        PALABRAS_CLAVE.put("permits", TokenType.PR_PERMITS);
+        PALABRAS_CLAVE.put("nonsealed", TokenType.PR_NONSEALED);
+        PALABRAS_CLAVE.put("final", TokenType.PR_FINAL);
     }
 
     private TablaPalabrasClave() {

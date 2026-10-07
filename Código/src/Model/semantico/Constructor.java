@@ -26,19 +26,20 @@ public class Constructor implements Chequeable{
     // alcanza con los tipos de parámetro para distinguir.
     public String getFirma() {
         String tipos = parametros.stream()
-                .map(p -> p.getTipo().getLexema())
+                .map(p -> p.getTipo().getToken().getLexema())
                 .collect(Collectors.joining(","));
         return nombre.getLexema() + "(" + tipos + ")";
     }
 
     @Override
-    public void estaBienDeclarado(TablaSimbolos tabla) {
+    public void estaBienDeclarado(TablaSimbolos tabla, Set<String> entornoGenerico) {
         Set<String> nombresVisibles = new HashSet<>();
         for (Parametro parametro : parametros) {
             if (!nombresVisibles.add(parametro.getNombre().getLexema())) {
                 tabla.agregarError(new ErrorSemantico(
                         "ERR_PARAMETRO_DUPLICADO", parametro.getNombre().getLinea(), parametro.getNombre().getLexema()));
             }
+            parametro.estaBienDeclarado(tabla, entornoGenerico);
         }
     }
 }

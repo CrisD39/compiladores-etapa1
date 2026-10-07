@@ -52,11 +52,19 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
             TokenType.ID_CLASE, TokenType.ID_GEN, TokenType.PR_VOID);
 
     // FIRST(<Miembro>) = FIRST(<Visibilidad>) ∪ FIRST(<CuerpoMiembro>)
-    //                  = { public, private } ∪ { static, void } ∪ FIRST(<Tipo>)
+    //                  = { public, private } ∪ { static, void, < } ∪ FIRST(<Tipo>)
+    // El '<' es FIRST de la rama nueva de método de instancia genérico
+    // (<GenericidadOpcional> sin 'static' antes, ver cuerpoMiembro()).
     private static final Set<TokenType> PRIMEROS_MIEMBRO = EnumSet.of(
-            TokenType.PR_PUBLIC, TokenType.PR_PRIVATE, TokenType.PR_STATIC, TokenType.PR_VOID,
+            TokenType.PR_PUBLIC, TokenType.PR_PRIVATE, TokenType.PR_FINAL, TokenType.PR_STATIC,
+            TokenType.PR_VOID, TokenType.PR_BOOLEAN, TokenType.PR_CHAR, TokenType.PR_INT,
+            TokenType.ID_CLASE, TokenType.ID_GEN, TokenType.OP_MENOR);
+
+    // FIRST(<MetodoInterfaz>) = FIRST(<GenericidadOpcional>) ∪ FIRST(<TipoMetodo>)
+    //                         = { < } ∪ PRIMEROS_TIPO_METODO
+    private static final Set<TokenType> PRIMEROS_METODO_INTERFAZ = EnumSet.of(
             TokenType.PR_BOOLEAN, TokenType.PR_CHAR, TokenType.PR_INT,
-            TokenType.ID_CLASE, TokenType.ID_GEN);
+            TokenType.ID_CLASE, TokenType.ID_GEN, TokenType.PR_VOID, TokenType.OP_MENOR);
 
     private static final Set<TokenType> PRIMEROS_PRIMITIVO = EnumSet.of(
             TokenType.PR_TRUE, TokenType.PR_FALSE, TokenType.LIT_INT,
@@ -104,6 +112,15 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
     // bloque() para decidir si siguen o cortan — ver sincronizar().
     private static final Set<TokenType> TOKENS_SINCRONIZACION = EnumSet.of(
             TokenType.PUNTO_COMA, TokenType.LLAVE_A, TokenType.LLAVE_C, TokenType.EOF);
+
+    // Los tres modificadores de <ListaClases> (sealed/nonsealed/final) -- se
+    // usa para detectar cuando aparece OTRO de estos justo donde se espera
+    // "class"/"interface" (ej. "sealed sealed class X", "final sealed final
+    // class X"): sin este chequeo, match(PR_CLASS) fallaba con un error
+    // genérico y el modo pánico se comía toda la declaración real como
+    // basura hasta el próximo "{" -- ver errorModificadorRepetido().
+    private static final Set<TokenType> MODIFICADORES_CLASE = EnumSet.of(
+            TokenType.PR_SEALED, TokenType.PR_NONSEALED, TokenType.PR_FINAL);
 
     // ------------------------------------------------------------------
     // Infraestructura: start / match / lookahead / error
@@ -182,10 +199,27 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
      * un error por corrida.
      */
     private void error(String esperado) {
+        registrarError(esperado);
+        sincronizar();
+    }
+
+    private void registrarError(String esperado) {
         String encontrado = tokenActual.getTipo().getNombre()
                 + " (\"" + tokenActual.getLexema() + "\")";
         errores.add(new ErrorSintactico(tokenActual.getLinea(), tokenActual.getLexema(), encontrado, esperado));
-        sincronizar();
+    }
+
+    // Caso especial de error, sin sincronizar(): un segundo modificador
+    // (sealed/nonsealed/final) donde se esperaba "class"/"interface" no se
+    // trata como un token "basura" a saltear hasta el próximo "{" -- se
+    // reporta un único mensaje claro y se deja el modificador repetido tal
+    // cual, sin consumir nada. Así, cuando listaClases() recursivamente
+    // vuelve a mirar el token actual, lo trata como un modificador nuevo
+    // (sealed()/nonSealed()/finalClase() otra vez) y la declaración real que
+    // sigue después se termina parseando bien, en vez de perderse en la
+    // cascada de modo pánico.
+    private void errorModificadorRepetido() {
+        registrarError("\"class\" o \"interface\" (no se puede repetir ni combinar sealed/nonsealed/final)");
     }
 
     private void sincronizar() {
@@ -211,9 +245,40 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
         match(TokenType.EOF);
     }
 
-    // <ListaClases> ::= <Clase> <ListaClases> | <Interfaz> <ListaClases> | ϵ
+    // <ListaClases> ::= <Sealed> <ListaClases> | <NonSealed> <ListaClases>
+    //                  | <Final> <ListaClases>
+    //                  | <Clase> <ListaClases> | <Interfaz> <ListaClases> | ϵ
+
+    // <Sealed> ::= sealed class idClase <GenericidadOpcional> <HerenciaOpcional> permits <PermitidosSealed> { <ListaMiembros> }
+    //            | sealed interface idClase <GenericidadOpcional> <ExtensionOpcional> permits <PermitidosSealed> { <ListaMetodosInterfaz> }
+    // <PermitidosSealed>      ::= idClase <PermitidosSealedResto>
+    // <PermitidosSealedResto> ::= , idClase <PermitidosSealedResto> | ϵ
+    // <NonSealed> ::= nonsealed class idClase <GenericidadOpcional> <HerenciaOpcional> { <ListaMiembros> }
+    //               | nonsealed interface idClase <GenericidadOpcional> <ExtensionOpcional> { <ListaMetodosInterfaz> }
+    // <Final> ::= final class idClase <GenericidadOpcional> <HerenciaOpcional> { <ListaMiembros> }
+    // 'final' solo aplica a clase (y método, dentro de <Miembro>) — a
+    // diferencia de Java real, esta gramática no admite 'final interface':
+    // no existe tal cosa en Java (las interfaces no se sellan con final), así
+    // que "final interface X" cae en el else de finalClase() y termina en el
+    // error sintáctico normal de clase() esperando "class" y encontrando
+    // "interface" -- no hace falta un caso especial para rechazarlo.
+    // 'sealed'/'nonsealed'/'final' son alternativas separadas al principio de
+    // <ListaClases> (mismo mecanismo que ya separa <Clase>/<Interfaz>): como
+    // cada una arranca con una palabra clave distinta, es sintácticamente
+    // imposible escribir "sealed final class" — no hace falta ningún chequeo
+    // semántico para prohibir esa combinación contradictoria, la gramática ya
+    // la excluye por construcción.
     private void listaClases() {
-        if (actualEs(TokenType.PR_CLASS)) {
+        if (actualEs(TokenType.PR_SEALED)) {
+            sealed();
+            listaClases();
+        } else if (actualEs(TokenType.PR_NONSEALED)) {
+            nonSealed();
+            listaClases();
+        } else if (actualEs(TokenType.PR_FINAL)) {
+            finalClase();
+            listaClases();
+        } else if (actualEs(TokenType.PR_CLASS)) {
             clase();
             listaClases();
         } else if (actualEs(TokenType.PR_INTERFACE)) {
@@ -224,18 +289,160 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
         }
     }
 
+    private void finalClase() {
+        match(TokenType.PR_FINAL);
+        if (actualEn(MODIFICADORES_CLASE)) {
+            errorModificadorRepetido();
+            return;
+        }
+        clase(true);
+    }
+
+    // <Sealed> ::= sealed <SealedClase> | sealed <SealedInterfaz>
+    private void sealed() {
+        match(TokenType.PR_SEALED);
+        if (actualEn(MODIFICADORES_CLASE)) {
+            errorModificadorRepetido();
+            return;
+        }
+        if (actualEs(TokenType.PR_INTERFACE)) {
+            sealedInterfaz();
+        } else {
+            sealedClase();
+        }
+    }
+
+    private void sealedClase() {
+        match(TokenType.PR_CLASS);
+        Token nombreClase = tokenActual;
+        match(TokenType.ID_CLASE);
+        Clase claseActual = crearClase(nombreClase);
+        claseActual.setSealed(true);
+        tablaSimbolo.insertarClase(claseActual);
+        claseActual.setParametrosTipo(genericidadOpcional());
+        herenciaOpcional();
+        permitidosSealed(claseActual);
+        match(TokenType.LLAVE_A);
+        listaMiembros();
+        match(TokenType.LLAVE_C);
+    }
+
+    // Mismo mecanismo que sealedClase(), sobre <ExtensionOpcional> y
+    // <ListaMetodosInterfaz> en vez de <HerenciaOpcional>/<ListaMiembros>.
+    private void sealedInterfaz() {
+        match(TokenType.PR_INTERFACE);
+        Token nombreInterfaz = tokenActual;
+        match(TokenType.ID_CLASE);
+        Interfaz interfazActual = new Interfaz(nombreInterfaz, tablaSimbolo);
+        interfazActual.setSealed(true);
+        tablaSimbolo.insertarClase(interfazActual);
+        interfazActual.setParametrosTipo(genericidadOpcional());
+        extensionOpcional(interfazActual);
+        permitidosSealedInterfaz(interfazActual);
+        match(TokenType.LLAVE_A);
+        listaMetodosInterfaz(interfazActual);
+        match(TokenType.LLAVE_C);
+    }
+
+    private void permitidosSealed(Clase claseActual) {
+        match(TokenType.PR_PERMITS);
+        Token permitido = tokenActual;
+        match(TokenType.ID_CLASE);
+        claseActual.agregarPermitido(permitido);
+        permitidosSealedResto(claseActual);
+    }
+
+    private void permitidosSealedResto(Clase claseActual) {
+        if (actualEs(TokenType.COMA)) {
+            match(TokenType.COMA);
+            Token permitido = tokenActual;
+            match(TokenType.ID_CLASE);
+            claseActual.agregarPermitido(permitido);
+            permitidosSealedResto(claseActual);
+        }
+        // ϵ
+    }
+
+    // Mismas dos producciones que permitidosSealed()/permitidosSealedResto(),
+    // pero acumulando sobre Interfaz en vez de Clase (ver esas para el
+    // comentario de gramática).
+    private void permitidosSealedInterfaz(Interfaz interfazActual) {
+        match(TokenType.PR_PERMITS);
+        Token permitido = tokenActual;
+        match(TokenType.ID_CLASE);
+        interfazActual.agregarPermitido(permitido);
+        permitidosSealedRestoInterfaz(interfazActual);
+    }
+
+    private void permitidosSealedRestoInterfaz(Interfaz interfazActual) {
+        if (actualEs(TokenType.COMA)) {
+            match(TokenType.COMA);
+            Token permitido = tokenActual;
+            match(TokenType.ID_CLASE);
+            interfazActual.agregarPermitido(permitido);
+            permitidosSealedRestoInterfaz(interfazActual);
+        }
+        // ϵ
+    }
+
+    // <NonSealed> ::= nonsealed <NonSealedClase> | nonsealed <NonSealedInterfaz>
+    private void nonSealed() {
+        match(TokenType.PR_NONSEALED);
+        if (actualEn(MODIFICADORES_CLASE)) {
+            errorModificadorRepetido();
+            return;
+        }
+        if (actualEs(TokenType.PR_INTERFACE)) {
+            nonSealedInterfaz();
+        } else {
+            nonSealedClase();
+        }
+    }
+
+    private void nonSealedClase() {
+        match(TokenType.PR_CLASS);
+        Token nombreClase = tokenActual;
+        match(TokenType.ID_CLASE);
+        Clase claseActual = crearClase(nombreClase);
+        claseActual.setNonSealed(true);
+        tablaSimbolo.insertarClase(claseActual);
+        claseActual.setParametrosTipo(genericidadOpcional());
+        herenciaOpcional();
+        match(TokenType.LLAVE_A);
+        listaMiembros();
+        match(TokenType.LLAVE_C);
+    }
+
+    private void nonSealedInterfaz() {
+        match(TokenType.PR_INTERFACE);
+        Token nombreInterfaz = tokenActual;
+        match(TokenType.ID_CLASE);
+        Interfaz interfazActual = new Interfaz(nombreInterfaz, tablaSimbolo);
+        interfazActual.setNonSealed(true);
+        tablaSimbolo.insertarClase(interfazActual);
+        interfazActual.setParametrosTipo(genericidadOpcional());
+        extensionOpcional(interfazActual);
+        match(TokenType.LLAVE_A);
+        listaMetodosInterfaz(interfazActual);
+        match(TokenType.LLAVE_C);
+    }
     // <Clase> ::= class idClase <GenericidadOpcional> <HerenciaOpcional> { <ListaMiembros> }
     // Pasada 1 del EDT (ver "Acciones semánticas sobre la gramática original"
     // en analizador_semantico.md): apenas se reconoce el nombre, se crea la
     // Clase (vacía) y se registra en la tabla. Herencia/miembros quedan para
     // la Pasada 2 (fuera de alcance de este pase).
     private void clase() {
+        clase(false);
+    }
+
+    private void clase(boolean esFinal) {
         match(TokenType.PR_CLASS);
         Token nombreClase = tokenActual;
         match(TokenType.ID_CLASE);
         Clase claseActual = crearClase(nombreClase);
+        claseActual.setFinal(esFinal);
         tablaSimbolo.insertarClase(claseActual);
-        genericidadOpcional();
+        claseActual.setParametrosTipo(genericidadOpcional());
         herenciaOpcional();
         match(TokenType.LLAVE_A);
         listaMiembros();
@@ -251,10 +458,10 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
         match(TokenType.ID_CLASE);
         Interfaz interfazActual = new Interfaz(nombreInterfaz, tablaSimbolo);
         tablaSimbolo.insertarClase(interfazActual);
-        genericidadOpcional();
+        interfazActual.setParametrosTipo(genericidadOpcional());
         extensionOpcional(interfazActual);
         match(TokenType.LLAVE_A);
-        listaMetodosInterfaz();
+        listaMetodosInterfaz(interfazActual);
         match(TokenType.LLAVE_C);
     }
 
@@ -268,30 +475,46 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
         return clase;
     }
 
-    // Construye el Metodo con placeholders (tipoRetorno=null, sin parámetros) y
-    // lo agrega a la clase actual. tipoMetodo()/argsFormales() todavía son
-    // puramente sintácticos (no resuelven Tipo/Parametro reales) — eso es
-    // Pasada 2, fuera de alcance de este pase; tipoRetorno/params se van a
-    // tener que pisar con los valores reales cuando se implemente.
-    private Metodo crearMetodo(Token nombre, boolean estatico) {
+    // Construye el Metodo con placeholders (tipoRetorno=null, sin parámetros).
+    // NO lo agrega todavía a la clase actual -- eso hay que hacerlo recién
+    // después de parchear los parámetros reales (setParametrosAMetodoActual),
+    // vía tablaSimbolo.agregarMetodoActualAClaseActual() en cada call site.
+    // Antes se agregaba acá mismo, con el placeholder todavía en params=[]:
+    // Clase.agregarMetodo() calcula getFirma() (nombre + tipos de parámetro)
+    // en ESE momento para la key del mapa y el chequeo de ERR_METODO_DUPLICADO,
+    // así que quedaba fijada como "nombre()" para siempre -- mutar
+    // metodo.parametros después no reindexa el HashMap. Resultado: dos
+    // sobrecargas legítimas con distintos parámetros (ej. mover(int) y
+    // mover(char)) colisionaban como si fueran el mismo método.
+    private void crearMetodo(Token nombre, boolean estatico, boolean esFinal) {
         Metodo metodo = new Metodo(nombre, null, estatico, new ArrayList<>());
+        metodo.setFinal(esFinal);
         tablaSimbolo.setMetodoActual(metodo);
-        tablaSimbolo.agregarMetodoAClaseActual(metodo);
-        return metodo;
     }
 
     // <GenericidadOpcional> ::= < idGen > | ϵ
-    private void genericidadOpcional() {
+    // Un único parámetro de tipo (REQ-AS-010), compartida por clase,
+    // interfaz y método. Devuelve lista (0 o 1 elemento) para que el modelo
+    // trate igual "sin genericidad" y "con un parámetro".
+    private List<Token> genericidadOpcional() {
+        List<Token> parametrosTipo = new ArrayList<>();
         if (actualEs(TokenType.OP_MENOR)) {
             match(TokenType.OP_MENOR);
+            parametrosTipo.add(tokenActual);
             match(TokenType.ID_GEN);
             match(TokenType.OP_MAYOR);
-        } else {
-            // ϵ — no hace nada
         }
+        return parametrosTipo;
     }
 
-    // <HerenciaOpcional> ::= extends <TipoReferencia> | implements <TipoReferencia> | ϵ
+    // <HerenciaOpcional> ::= extends <TipoReferencia> | implements <ListaInterfaces> | ϵ
+    // 'extends' sigue aceptando un único tipo (una clase no puede heredar de
+    // varias clases, ni en Java real) y sigue siendo mutuamente excluyente
+    // con 'implements' en la misma clase (ver sintError47.java) -- lo único
+    // que cambia es que 'implements' ahora acepta una lista separada por
+    // coma (Logro 2: "class X implements A, B"), antes limitado a un único
+    // <TipoReferencia> (ver sintError52.java, reescrito para la nueva
+    // gramática).
     private void herenciaOpcional() {
         if (actualEs(TokenType.PR_EXTENDS)) {
             match(TokenType.PR_EXTENDS);
@@ -300,24 +523,64 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
             tablaSimbolo.getClaseActual().setHerencia(padre);
         } else if (actualEs(TokenType.PR_IMPLEMENTS)) {
             match(TokenType.PR_IMPLEMENTS);
-            tipoReferencia();
-            //TODO: wirear 'implements' a la clase actual (pendiente: Clase.interfaces
-            // espera Interfaz ya resuelta, no Token — es una Pasada 2 distinta a esta).
+            listaInterfacesImplementadas(tablaSimbolo.getClaseActual());
         } else {
             // ϵ — no hace nada
         }
     }
 
-    // <ExtensionOpcional> ::= extends <TipoReferencia> | ϵ
+    // <ListaInterfaces>      ::= idClase <TipoGenericoOpcional> <ListaInterfacesResto>
+    // <ListaInterfacesResto> ::= , idClase <TipoGenericoOpcional> <ListaInterfacesResto> | ϵ
+    // (el idClase + <TipoGenericoOpcional> de cada entrada se consumen vía
+    // tipoReferencia(), igual que en el resto de la gramática).
+    private void listaInterfacesImplementadas(Clase claseActual) {
+        Token interfaz = tokenActual;
+        tipoReferencia();
+        claseActual.agregarInterfaz(interfaz);
+        listaInterfacesImplementadasResto(claseActual);
+    }
+
+    private void listaInterfacesImplementadasResto(Clase claseActual) {
+        if (actualEs(TokenType.COMA)) {
+            match(TokenType.COMA);
+            Token interfaz = tokenActual;
+            tipoReferencia();
+            claseActual.agregarInterfaz(interfaz);
+            listaInterfacesImplementadasResto(claseActual);
+        }
+        // ϵ
+    }
+
+    // <ExtensionOpcional> ::= extends <ListaInterfaces> | ϵ
+    // Mismas dos producciones que listaInterfacesImplementadas()/
+    // ...Resto(), pero acumulando sobre Interfaz.agregarHerencia() en vez de
+    // Clase.agregarInterfaz() -- ahora también admite varias (Logro 2:
+    // "interface X extends Y, Z"), antes un único <TipoReferencia>.
     private void extensionOpcional(Interfaz interfazActual) {
         if (actualEs(TokenType.PR_EXTENDS)) {
             match(TokenType.PR_EXTENDS);
-            Token padre = tokenActual; // idClase del padre, antes de que tipoReferencia() lo consuma
-            tipoReferencia();
-            interfazActual.setExtendida(padre);
+            listaInterfacesExtendidas(interfazActual);
         } else {
             // ϵ — no hace nada
         }
+    }
+
+    private void listaInterfacesExtendidas(Interfaz interfazActual) {
+        Token padre = tokenActual;
+        tipoReferencia();
+        interfazActual.agregarHerencia(padre);
+        listaInterfacesExtendidasResto(interfazActual);
+    }
+
+    private void listaInterfacesExtendidasResto(Interfaz interfazActual) {
+        if (actualEs(TokenType.COMA)) {
+            match(TokenType.COMA);
+            Token padre = tokenActual;
+            tipoReferencia();
+            interfazActual.agregarHerencia(padre);
+            listaInterfacesExtendidasResto(interfazActual);
+        }
+        // ϵ
     }
 
     // <ListaMiembros> ::= <Miembro> <ListaMiembros> | ϵ
@@ -331,19 +594,20 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
     }
 
     // <ListaMetodosInterfaz> ::= <MetodoInterfaz> <ListaMetodosInterfaz> | ϵ
-    private void listaMetodosInterfaz() {
-        if (actualEn(PRIMEROS_TIPO_METODO)) {
-            metodoInterfaz();
-            listaMetodosInterfaz();
+    private void listaMetodosInterfaz(Interfaz interfazActual) {
+        if (actualEn(PRIMEROS_METODO_INTERFAZ)) {
+            metodoInterfaz(interfazActual);
+            listaMetodosInterfaz(interfazActual);
         } else {
             // ϵ — no hace nada
         }
     }
 
-    // <Miembro> ::= <Visibilidad> <CuerpoMiembro>
+    // <Miembro> ::= <Visibilidad> <FinalOpcional> <CuerpoMiembro>
     private void miembro() {
         visibilidad();
-        cuerpoMiembro();
+        boolean esFinal = finalOpcional();
+        cuerpoMiembro(esFinal);
     }
 
     // <Visibilidad> ::= public | private | ϵ
@@ -357,7 +621,17 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
         }
     }
 
-    // <CuerpoMiembro> ::= static <TipoMetodo> idMetVar <ArgsFormales> <Bloque>
+    // <FinalOpcional> ::= final | ϵ
+    private boolean finalOpcional() {
+        if (actualEs(TokenType.PR_FINAL)) {
+            match(TokenType.PR_FINAL);
+            return true;
+        }
+        return false;
+    }
+
+    // <CuerpoMiembro> ::= static <GenericidadOpcional> <TipoMetodo> idMetVar <ArgsFormales> <Bloque>
+    //                 |  <GenericidadOpcional> <TipoMetodo> idMetVar <ArgsFormales> <Bloque>   (sin 'static', dispara con '<')
     //                 |  void idMetVar <ArgsFormales> <Bloque>
     //                 |  <TipoPrimitivo> <DimensionesOpcionales> idMetVar <RestoMiembro>
     //                 |  idGen <DimensionesOpcionales> idMetVar <RestoMiembro>
@@ -367,45 +641,67 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
     // el mismo prefijo "idClase" que un atributo/método de tipo clase, así que
     // se factoriza en profundidad en trasIdClaseMiembro() (ver "Factorización
     // de <Miembro>" en el documento).
-    private void cuerpoMiembro() {
+    // esFinal viaja desde <FinalOpcional> (ya consumido en miembro()) hasta el
+    // punto donde se sabe si esto termina siendo un método (se guarda en el
+    // Metodo real) o un atributo/constructor (no hay dónde guardarlo todavía:
+    // 'final' ahí es error sintáctico, ver restoMiembro()/trasIdClaseMiembro()).
+    private void cuerpoMiembro(boolean esFinal) {
         if (actualEs(TokenType.PR_STATIC)) {
             match(TokenType.PR_STATIC);
-            Tipo tipoRetorno = tipoMetodo();
-            Token nombreMetodo = tokenActual;
-            match(TokenType.ID_MET_VAR);
-            Metodo metodo = crearMetodo(nombreMetodo, true);
-            List<Parametro> params = argsFormales();
-            metodo.setTipoRetorno(tipoRetorno);
-            metodo.setParametros(params);
-            bloque();
+            List<Token> parametrosTipoMetodo = genericidadOpcional();
+            metodoConGenericidadPropia(true, esFinal, parametrosTipoMetodo);
+        } else if (actualEs(TokenType.OP_MENOR)) {
+            // Método de instancia con parámetro(s) de tipo propio(s):
+            // <T> TipoMetodo idMetVar(...) {...}. Dispara directo con '<':
+            // nunca puede terminar siendo atributo ni constructor, así que no
+            // pasa por restoMiembro()/trasIdClaseMiembro().
+            List<Token> parametrosTipoMetodo = genericidadOpcional();
+            metodoConGenericidadPropia(false, esFinal, parametrosTipoMetodo);
         } else if (actualEs(TokenType.PR_VOID)) {
             match(TokenType.PR_VOID);
             Token nombreMetodo = tokenActual;
             match(TokenType.ID_MET_VAR);
-            Metodo metodo = crearMetodo(nombreMetodo, false);
+            crearMetodo(nombreMetodo, false, esFinal);
             List<Parametro> params = argsFormales();
-            metodo.setParametros(params);
+            tablaSimbolo.setParametrosAMetodoActual(params);
+            tablaSimbolo.agregarMetodoActualAClaseActual();
             bloque();
         } else if (actualEn(PRIMEROS_TIPO_PRIMITIVO)) {
             Token tipoTok = tipoPrimitivo();
             dimensionesOpcionales();
             Token nombreMiembro = tokenActual;
             match(TokenType.ID_MET_VAR);
-            restoMiembro(nombreMiembro, tipoTok);
+            restoMiembro(nombreMiembro, new Tipo(tipoTok), esFinal);
         } else if (actualEs(TokenType.ID_GEN)) {
             Token tipoTok = tokenActual;
             match(TokenType.ID_GEN);
             dimensionesOpcionales();
             Token nombreMiembro = tokenActual;
             match(TokenType.ID_MET_VAR);
-            restoMiembro(nombreMiembro, tipoTok);
+            restoMiembro(nombreMiembro, new Tipo(tipoTok), esFinal);
         } else if (actualEs(TokenType.ID_CLASE)) {
             Token idClaseTok = tokenActual;
             match(TokenType.ID_CLASE);
-            trasIdClaseMiembro(idClaseTok);
+            trasIdClaseMiembro(idClaseTok, esFinal);
         } else {
-            error("un miembro de clase (\"static\", \"void\" o un tipo)");
+            error("un miembro de clase (\"static\", \"void\", \"<\" o un tipo)");
         }
+    }
+
+    // Cuerpo común a "static <GenericidadOpcional> <TipoMetodo> ..." y
+    // "<GenericidadOpcional> <TipoMetodo> ..." (sin 'static') -- ambas ramas
+    // solo difieren en 'estatico' y en si matchearon 'static' antes.
+    private void metodoConGenericidadPropia(boolean estatico, boolean esFinal, List<Token> parametrosTipoMetodo) {
+        Tipo tipoRetorno = tipoMetodo();
+        Token nombreMetodo = tokenActual;
+        match(TokenType.ID_MET_VAR);
+        crearMetodo(nombreMetodo, estatico, esFinal);
+        List<Parametro> params = argsFormales();
+        tablaSimbolo.setTipoRetornoAMetodoActual(tipoRetorno);
+        tablaSimbolo.setParametrosAMetodoActual(params);
+        tablaSimbolo.setParametrosTipoAMetodoActual(parametrosTipoMetodo);
+        tablaSimbolo.agregarMetodoActualAClaseActual();
+        bloque();
     }
 
     // <TrasIdClaseMiembro> ::= <ArgsFormales> <Bloque>
@@ -414,19 +710,25 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
     // cualquier otra cosa => era un atributo o método cuyo tipo es esa clase
     // (Foo bar; | Foo<X> bar; | Foo bar(...) {...}), con <TipoGenericoOpcional>
     // y <DimensionesOpcionales> anulables hasta idMetVar.
-    private void trasIdClaseMiembro(Token idClassToken) {
+    private void trasIdClaseMiembro(Token idClassToken, boolean esFinal) {
         if (actualEs(TokenType.PAR_A)) {
-            // "(" pegado, es el constructor.
+            // "(" pegado, es el constructor. 'final' no aplica a constructores
+            // (no son métodos ni se redefinen) — igual que en atributo, error
+            // sintáctico en vez de dejarlo pasar sin guardarlo en ningún lado.
+            if (esFinal) {
+                error("un método (\"final\" no se puede aplicar a un constructor)");
+                return;
+            }
             List<Parametro> params = argsFormales();
             bloque();
             Constructor constructor = new Constructor(idClassToken, params);
             tablaSimbolo.getClaseActual().agregarConstructor(constructor);
         } else {
-            tipoGenericoOpcional();
+            Tipo tipo = new Tipo(idClassToken, tipoGenericoOpcional());
             dimensionesOpcionales();
             Token nombreMiembro = tokenActual;
             match(TokenType.ID_MET_VAR);
-            restoMiembro(nombreMiembro, idClassToken);
+            restoMiembro(nombreMiembro, tipo, esFinal);
         }
     }
 
@@ -436,36 +738,58 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
     // La tercera rama (REQ-AS-011) es un atributo con inicializador
     // (int x = 5;). FIRST disjuntos con las otras dos ({ ; } / { ( } / { = }):
     // no hace falta factorizar nada, "=" ya alcanza para decidir.
-    // nombreMiembro/tipoTok llegan por parámetro (heredado) desde
+    // nombreMiembro/tipo llegan por parámetro (heredado) desde
     // cuerpoMiembro()/trasIdClaseMiembro(): son el tipo y el idMetVar ya
     // consumidos antes de saber si es atributo o método — recién acá se
     // construye el objeto (Estrategia B, ver analizador_semantico.md).
-    private void restoMiembro(Token nombreMiembro, Token tipoTok) {
+    private void restoMiembro(Token nombreMiembro, Tipo tipo, boolean esFinal) {
         if (actualEs(TokenType.PUNTO_COMA)) {
+            // 'final' no aplica a atributos (solo clase/interfaz/método, ver
+            // Logro 1 en analizador_semantico.md) — error sintáctico en vez de
+            // dejarlo pasar sin guardarlo (Atributo no tiene campo 'final').
+            if (esFinal) {
+                error("un método (\"final\" no se puede aplicar a un atributo)");
+                return;
+            }
             match(TokenType.PUNTO_COMA);
-            tablaSimbolo.getClaseActual().agregarAtributo(new Atributo(nombreMiembro, tipoTok));
+            tablaSimbolo.getClaseActual().agregarAtributo(new Atributo(nombreMiembro, tipo));
         } else if (actualEs(TokenType.PAR_A)) {
-            Metodo metodo = crearMetodo(nombreMiembro, false);
+            crearMetodo(nombreMiembro, false, esFinal);
             List<Parametro> params = argsFormales();
-            metodo.setParametros(params);
-            metodo.setTipoRetorno(new Tipo(tipoTok));
+            tablaSimbolo.setParametrosAMetodoActual(params);
+            tablaSimbolo.setTipoRetornoAMetodoActual(tipo);
+            tablaSimbolo.agregarMetodoActualAClaseActual();
             bloque();
         } else if (actualEs(TokenType.OP_ASIGN)) {
+            if (esFinal) {
+                error("un método (\"final\" no se puede aplicar a un atributo)");
+                return;
+            }
             operadorAsignacion();
             expresionCompuesta();
             matchCierre(TokenType.PUNTO_COMA);
-            tablaSimbolo.getClaseActual().agregarAtributo(new Atributo(nombreMiembro, tipoTok));
+            tablaSimbolo.getClaseActual().agregarAtributo(new Atributo(nombreMiembro, tipo));
         } else {
             error("\";\", \"=\" (atributo) o \"(\" (método)");
         }
     }
 
-    // <MetodoInterfaz> ::= <TipoMetodo> idMetVar <ArgsFormales> ;
-    private void metodoInterfaz() {
-        tipoMetodo();
+    // <MetodoInterfaz> ::= <GenericidadOpcional> <TipoMetodo> idMetVar <ArgsFormales> ;
+    // A diferencia de un método de clase (crearMetodo() + parcheo en dos
+    // pasadas vía TablaSimbolos, porque ahí falta parsear el <Bloque>), acá
+    // no hay cuerpo -- tipoRetorno/params ya están completos antes de
+    // construir el Metodo, Estrategia B pura (mismo criterio que
+    // Atributo/Parametro/Constructor).
+    private void metodoInterfaz(Interfaz interfazActual) {
+        List<Token> parametrosTipoMetodo = genericidadOpcional();
+        Tipo tipoRetorno = tipoMetodo();
+        Token nombreMetodo = tokenActual;
         match(TokenType.ID_MET_VAR);
-        argsFormales();
+        List<Parametro> params = argsFormales();
         matchCierre(TokenType.PUNTO_COMA);
+        Metodo metodo = new Metodo(nombreMetodo, tipoRetorno, false, params);
+        metodo.setParametrosTipoPropios(parametrosTipoMetodo);
+        interfazActual.agregarMetodo(metodo);
     }
 
     // <TipoMetodo> ::= <Tipo> | void
@@ -475,7 +799,7 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
             match(TokenType.PR_VOID);
             return null;
         } else if (actualEn(PRIMEROS_TIPO)) {
-            return new Tipo(tipo());
+            return tipo();
         } else {
             error("un tipo o \"void\"");
             return null;
@@ -483,25 +807,24 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
     }
 
     // <Tipo> ::= <TipoBase> <DimensionesOpcionales>
-    // DimensionesOpcionales se consume pero no se guarda todavía -- Atributo/
-    // Parametro siguen modelando el tipo como Token crudo (ver "Jerarquía
-    // Tipo" en analizador_semantico.md, todavía no implementada).
-    private Token tipo() {
-        Token t = tipoBase();
+    // DimensionesOpcionales se consume pero no se guarda todavía (ver
+    // "Jerarquía Tipo" en analizador_semantico.md).
+    private Tipo tipo() {
+        Tipo t = tipoBase();
         dimensionesOpcionales();
         return t;
     }
 
     // <TipoBase> ::= <TipoPrimitivo> | <TipoReferencia> | idGen
-    private Token tipoBase() {
+    private Tipo tipoBase() {
         if (actualEn(PRIMEROS_TIPO_PRIMITIVO)) {
-            return tipoPrimitivo();
+            return new Tipo(tipoPrimitivo());
         } else if (actualEs(TokenType.ID_CLASE)) {
             return tipoReferencia();
         } else if (actualEs(TokenType.ID_GEN)) {
             Token t = tokenActual;
             match(TokenType.ID_GEN);
-            return t;
+            return new Tipo(t);
         } else {
             error("un tipo (primitivo, idClase o idGen)");
             return null;
@@ -520,11 +843,10 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
     }
 
     // <TipoReferencia> ::= idClase <TipoGenericoOpcional>
-    private Token tipoReferencia() {
+    private Tipo tipoReferencia() {
         Token t = tokenActual;
         match(TokenType.ID_CLASE);
-        tipoGenericoOpcional();
-        return t;
+        return new Tipo(t, tipoGenericoOpcional());
     }
 
     // <TipoPrimitivo> ::= boolean | char | int
@@ -543,14 +865,15 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
     }
 
     // <TipoGenericoOpcional> ::= < <InstanciadoOParametrico> > | ϵ
-    private void tipoGenericoOpcional() {
+    // Devuelve el argumento genérico, o null si no hay "<...>".
+    private Tipo tipoGenericoOpcional() {
         if (actualEs(TokenType.OP_MENOR)) {
             match(TokenType.OP_MENOR);
-            instanciadoOParametrico();
+            Tipo argumento = instanciadoOParametrico();
             match(TokenType.OP_MAYOR);
-        } else {
-            // ϵ — no hace nada
+            return argumento;
         }
+        return null;
     }
 
     // <TipoGenericoOpcionalNew> ::= < <DiamanteOTipo> > | ϵ
@@ -584,14 +907,19 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
     // genéricos anidados, p. ej. Caja<Lista<Item>>). El cierre "Item>>" tokeniza
     // como dos OP_MAYOR sueltos (estadoMayor() sólo combina con "="), así que
     // cada nivel de anidamiento consume el suyo sin tratamiento especial.
-    private void instanciadoOParametrico() {
+    // Devuelve el argumento como Tipo (recursivo) para que el semántico pueda
+    // validar cada nivel (Logro 5).
+    private Tipo instanciadoOParametrico() {
+        Token t = tokenActual;
         if (actualEs(TokenType.ID_GEN)) {
             match(TokenType.ID_GEN);
+            return new Tipo(t);
         } else if (actualEs(TokenType.ID_CLASE)) {
             match(TokenType.ID_CLASE);
-            tipoGenericoOpcional();
+            return new Tipo(t, tipoGenericoOpcional());
         } else {
             error("idGen o idClase");
+            return null;
         }
     }
 
@@ -636,10 +964,10 @@ public class AnalizadorSintacticoImpl implements AnalizadorSintactico {
 
     // <ArgFormal> ::= <Tipo> idMetVar
     private Parametro argFormal() {
-        Token tipoTok = tipo();
+        Tipo tipo = tipo();
         Token nombre = tokenActual;
         match(TokenType.ID_MET_VAR);
-        return new Parametro(nombre, tipoTok);
+        return new Parametro(nombre, tipo);
     }
 
     // <Bloque> ::= { <ListaSentencias> }
